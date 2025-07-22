@@ -45,7 +45,7 @@ export async function getUrls(org, site, service, sourceLocation, urls, fetchCon
 
       const content = await resp.text();
 
-      if (content.includes('da-loc-added') || content.includes('da-loc-deleted')) {
+      if (content.includes('da-diff-added') || content.includes('da-diff-deleted')) {
         url.error = `${url.daBasePath} has unmerged changes. Please resolve before translating.`;
         return;
       }
