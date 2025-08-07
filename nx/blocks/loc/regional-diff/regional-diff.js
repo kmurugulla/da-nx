@@ -378,8 +378,20 @@ function buildHtmlFromDiff(diff, modified) {
 }
 
 export const removeLocTags = (html) => {
-  const locElsToRemove = html.querySelectorAll(`${DELETED_TAG}, [loc-temp-dom]`);
+  // TODO: Remove da-loc-deleted once we've migrated all regional edits to the new loc tags
+  const locElsToRemove = html.querySelectorAll(`${DELETED_TAG}, [loc-temp-dom], 'da-loc-deleted'`);
   locElsToRemove.forEach((el) => el.remove());
+
+  // Temp code to support old regional edits
+  const daLocAddedEls = html.querySelectorAll('da-loc-added');
+  daLocAddedEls.forEach((el) => {
+    const parent = el.parentNode;
+    if (!parent) return;
+    while (el.firstChild) {
+      parent.insertBefore(el.firstChild, el);
+    }
+    parent.removeChild(el);
+  });
 
   const addedEls = html.querySelectorAll(`[${ADDED_TAG}]`);
   addedEls.forEach((el) => {
