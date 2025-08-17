@@ -1,0 +1,119 @@
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-400);
+  padding: var(--spacing-400);
+  background: var(--sl-color-neutral-0);
+  border-bottom: 1px solid var(--sl-color-neutral-200);
+  border-radius: 0.5rem;
+  margin-bottom: var(--spacing-400);
+}
+
+.search-container {
+  flex: 1;
+  max-width: 400px;
+}
+
+.search-icon {
+  width: 1rem;
+  height: 1rem;
+  color: var(--sl-color-neutral-500);
+}
+
+.scanning-status {
+  display: flex;
+  align-items: center;
+}
+
+.scanning-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-200);
+  padding: var(--spacing-200) var(--spacing-300);
+  background: var(--sl-color-primary-50);
+  border: 1px solid var(--sl-color-primary-200);
+  border-radius: 0.25rem;
+  color: var(--sl-color-primary-700);
+  font-size: 0.875rem;
+}
+
+.scanning-text {
+  font-weight: 500;
+}
+
+.scanning-indicator.completed {
+  background: var(--sl-color-success-50);
+  border-color: var(--sl-color-success-200);
+  color: var(--sl-color-success-700);
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-radius: 50%;
+  border-top-color: var(--sl-color-primary-600);
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.view-controls {
+  display: flex;
+  gap: var(--spacing-200);
+}
+
+.view-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-200);
+  padding: var(--spacing-200) var(--spacing-300);
+  border: 1px solid var(--sl-color-neutral-300);
+  border-radius: 0.25rem;
+  background: var(--sl-color-neutral-0);
+  color: var(--sl-color-neutral-700);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 60px;
+  justify-content: center;
+}
+
+.view-btn:hover {
+  background: var(--sl-color-neutral-50);
+  border-color: var(--sl-color-neutral-400);
+}
+
+.view-btn.active {
+  background: var(--sl-color-primary-600);
+  border-color: var(--sl-color-primary-600);
+  color: var(--sl-color-neutral-0);
+}
+
+.view-btn.active:hover {
+  background: var(--sl-color-primary-700);
+  border-color: var(--sl-color-primary-700);
+}
+
+.view-btn .icon {
+  width: 1rem;
+  height: 1rem;
+  color: currentColor;
+}
+
+svg {
+  display: none;
+}
+
+.icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
