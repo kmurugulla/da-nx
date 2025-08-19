@@ -1,13 +1,20 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
+import { getMediaCounts, getAvailableSubtypes } from '../../utils/utils.js';
 
 const styles = await getStyle(import.meta.url);
 
 class NxMediaSidebar extends LitElement {
   static properties = {
-    filters: { attribute: false },
     mediaData: { attribute: false },
+    _activeFilter: { state: true },
+    _selectedSubtypes: { state: true },
   };
+
+  constructor() {
+    super();
+    this._selectedSubtypes = new Set();
+  }
 
   connectedCallback() {
     super.connectedCallback();
@@ -16,89 +23,102 @@ class NxMediaSidebar extends LitElement {
 
   handleFilter(e) {
     const filterType = e.target.dataset.filter;
-    this.dispatchEvent(new CustomEvent('filter', {
-      detail: { type: filterType },
-    }));
+    this._activeFilter = filterType;
+
+    if (filterType !== 'missingAlt') {
+      this._selectedSubtypes.clear();
+    }
+    this.dispatchEvent(new CustomEvent('filter', { detail: { type: filterType } }));
+  }
+
+  handleSubtypeToggle(e) {
+    const { value: subtype, checked } = e.target;
+
+    if (checked) {
+      this._selectedSubtypes.add(subtype);
+    } else {
+      this._selectedSubtypes.delete(subtype);
+    }
+
+    this.dispatchEvent(new CustomEvent('subtypeFilter', { detail: { subtypes: Array.from(this._selectedSubtypes) } }));
   }
 
   get mediaCounts() {
-    if (!this.mediaData) return {};
+    return getMediaCounts(this.mediaData);
+  }
 
-    const counts = {
-      total: this.mediaData.length,
-      images: 0,
-      videos: 0,
-      documents: 0,
-      used: 0,
-      unused: 0,
-      missingAlt: 0,
-    };
-
-    this.mediaData.forEach((media) => {
-      const ext = media.mediaPath.split('.').pop()?.toLowerCase();
-
-      if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
-        counts.images++;
-      } else if (['mp4', 'webm', 'mov', 'avi'].includes(ext)) {
-        counts.videos++;
-      } else {
-        counts.documents++;
-      }
-
-      if (media.usageCount > 0) {
-        counts.used++;
-      } else {
-        counts.unused++;
-      }
-
-      if (!media.alt && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
-        counts.missingAlt++;
-      }
-    });
-
-    return counts;
+  get availableSubtypes() {
+    return getAvailableSubtypes(this.mediaData, this._activeFilter);
   }
 
   render() {
     const counts = this.mediaCounts;
+    const subtypes = this.availableSubtypes;
 
     return html`
       <aside class="media-sidebar">
+        <div class="sidebar-header">
+          <h1 class="sidebar-title">Media Library</h1>
+        </div>
         <div class="filter-section">
           <h3>MEDIA TYPES</h3>
           <ul class="filter-list">
             <li>
-              <button data-filter="all" @click=${this.handleFilter}>
-                <svg class="filter-icon">
-                  <use href="#S2IconApps20N-icon"></use>
-                </svg>
+              <button 
+                data-filter="all" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'all' ? 'active' : ''}"
+              >
                 All Media
                 <span class="count">${counts.total}</span>
               </button>
             </li>
             <li>
-              <button data-filter="images" @click=${this.handleFilter}>
-                <svg class="filter-icon">
-                  <use href="#S2IconHome20N-icon"></use>
-                </svg>
+              <button 
+                data-filter="images" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'images' ? 'active' : ''}"
+              >
                 Images
                 <span class="count">${counts.images}</span>
               </button>
             </li>
+            ${subtypes.length > 0 ? html`
+              <li class="subtype-container">
+                <ul class="subtype-list">
+                  ${subtypes.map(({ subtype, count }) => html`
+                    <li>
+                      <label class="subtype-item">
+                        <input 
+                          type="checkbox" 
+                          value="${subtype}"
+                          ?checked=${this._selectedSubtypes.has(subtype)}
+                          @change=${this.handleSubtypeToggle}
+                        >
+                        <span class="subtype-label">${subtype.toUpperCase()}</span>
+                        <span class="count">${count}</span>
+                      </label>
+                    </li>
+                  `)}
+                </ul>
+              </li>
+            ` : ''}
             <li>
-              <button data-filter="videos" @click=${this.handleFilter}>
-                <svg class="filter-icon">
-                  <use href="#S2IconHome20N-icon"></use>
-                </svg>
+              <button 
+                data-filter="videos" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'videos' ? 'active' : ''}"
+              >
                 Videos
                 <span class="count">${counts.videos}</span>
               </button>
             </li>
             <li>
-              <button data-filter="documents" @click=${this.handleFilter}>
-                <svg class="filter-icon">
-                  <use href="#S2IconHome20N-icon"></use>
-                </svg>
+              <button 
+                data-filter="documents" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'documents' ? 'active' : ''}"
+              >
                 Documents
                 <span class="count">${counts.documents}</span>
               </button>
@@ -110,30 +130,33 @@ class NxMediaSidebar extends LitElement {
           <h3>USAGE STATUS</h3>
           <ul class="filter-list">
             <li>
-              <button data-filter="used" @click=${this.handleFilter}>
-                <svg class="filter-icon">
-                  <use href="#S2IconCheckmarkCircleGreen_20_N"></use>
-                </svg>
-                Used Files
+              <button 
+                data-filter="missingAlt" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'missingAlt' ? 'active' : ''}"
+              >
+                Missing Alt Text
+                <span class="count">${counts.missingAlt}</span>
+              </button>
+            </li>
+            <li>
+              <button 
+                data-filter="used" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'used' ? 'active' : ''}"
+              >
+                Used Media
                 <span class="count">${counts.used}</span>
               </button>
             </li>
             <li>
-              <button data-filter="unused" @click=${this.handleFilter}>
-                <svg class="filter-icon">
-                  <use href="#S2IconAlertDiamondOrange_20_N"></use>
-                </svg>
-                Unused Files
+              <button 
+                data-filter="unused" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'unused' ? 'active' : ''}"
+              >
+                Unused Media
                 <span class="count">${counts.unused}</span>
-              </button>
-            </li>
-            <li>
-              <button data-filter="missingAlt" @click=${this.handleFilter}>
-                <svg class="filter-icon">
-                  <use href="#S2IconAlertDiamondOrange_20_N"></use>
-                </svg>
-                Missing Alt Text
-                <span class="count">${counts.missingAlt}</span>
               </button>
             </li>
           </ul>

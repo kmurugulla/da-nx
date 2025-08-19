@@ -1,13 +1,13 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
-import { DA_ORIGIN } from '../../../../public/utils/constants.js';
+import { IMAGE_EXTENSIONS, getDisplayMediaType } from '../../utils/utils.js';
 
 const styles = await getStyle(import.meta.url);
 
 class NxMediaList extends LitElement {
   static properties = {
     mediaData: { attribute: false },
-    sitePath: { attribute: false },
+    isScanning: { attribute: false },
   };
 
   connectedCallback() {
@@ -17,26 +17,28 @@ class NxMediaList extends LitElement {
 
   handleMediaClick(e) {
     const { path } = e.currentTarget.dataset;
-    this.dispatchEvent(new CustomEvent('mediaClick', {
-      detail: { mediaPath: path },
-    }));
+    this.dispatchEvent(new CustomEvent('mediaClick', { detail: { mediaUrl: path } }));
   }
 
-  get orgRepo() {
-    if (!this.sitePath) return { org: '', repo: '' };
-    const parts = this.sitePath.split('/').filter(Boolean);
-    return {
-      org: parts[0] || '',
-      repo: parts[1] || '',
-    };
+  handleInfoClick(e, media) {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent('mediaInfo', { detail: { media } }));
   }
 
   render() {
     if (!this.mediaData || this.mediaData.length === 0) {
+      if (this.isScanning) {
+        return html`
+          <div class="empty-state">
+            <h2>Scanning in progress...</h2>
+            <p>Please wait while we discover media files on your site.</p>
+          </div>
+        `;
+      }
       return html`
         <div class="empty-state">
-          <h2>No media found</h2>
-          <p>Start scanning your site to discover media files.</p>
+          <h2>No Results Found</h2>
+          <p>Try adjusting your filters or search criteria.</p>
         </div>
       `;
     }
@@ -48,18 +50,18 @@ class NxMediaList extends LitElement {
           <div class="header-cell">Name</div>
           <div class="header-cell">Type</div>
           <div class="header-cell">Usage</div>
-          <div class="header-cell">Location</div>
-          <div class="header-cell">Status</div>
+          <div class="header-cell">Alt</div>
+          <div class="header-cell">Media Info</div>
         </div>
         
         <div class="list-content">
           ${this.mediaData.map((media) => html`
-            <div class="media-item" data-path="${media.mediaPath}" @click=${this.handleMediaClick}>
+            <div class="media-item" data-path="${media.mediaUrl}" @click=${this.handleMediaClick}>
               <div class="item-preview">
                 ${this.renderMediaPreview(media)}
               </div>
               <div class="item-name">${this.getMediaName(media)}</div>
-              <div class="item-type">${this.getMediaType(media.mediaPath)}</div>
+              <div class="item-type">${getDisplayMediaType(media)}</div>
               <div class="item-usage">
                 ${media.usageCount > 0 ? html`
                   <span class="usage-badge used">Used (${media.usageCount})</span>
@@ -67,15 +69,19 @@ class NxMediaList extends LitElement {
                   <span class="usage-badge unused">Unused</span>
                 `}
               </div>
-              <div class="item-location">
-                ${media.docPath ? this.getShortPath(media.docPath) : '-'}
-              </div>
-              <div class="item-status">
-                ${!media.alt && this.isImage(media.mediaPath) ? html`
-                  <span class="status-badge missing">Missing alt text</span>
+              <div class="item-alt">
+                ${!media.alt && media.type && media.type.startsWith('img >') ? html`
+                  <span class="missing-alt-indicator" title="Missing alt text">
+                    NO ALT
+                  </span>
                 ` : html`
-                  <span class="status-badge present">Alt text present</span>
+                  <span class="alt-present">✓</span>
                 `}
+              </div>
+              <div class="item-actions">
+                <sl-button variant="primary" size="small" @click=${(e) => this.handleInfoClick(e, media)} title="View details">
+                  INFO
+                </sl-button>
               </div>
             </div>
           `)}
@@ -85,16 +91,15 @@ class NxMediaList extends LitElement {
   }
 
   renderMediaPreview(media) {
-    const ext = media.mediaPath.split('.').pop()?.toLowerCase();
-    const { org, repo } = this.orgRepo;
-    
-    if (this.isImage(media.mediaPath)) {
-      const imageUrl = `${DA_ORIGIN}/source/${org}/${repo}${media.mediaPath}`;
+    const ext = media.mediaUrl.split('.').pop()?.toLowerCase();
+
+    if (this.isImage(media.mediaUrl)) {
+      const imageUrl = media.mediaUrl;
       return html`
         <img src="${imageUrl}" alt="${media.alt || ''}" loading="lazy">
       `;
     }
-    
+
     if (ext === 'mp4') {
       return html`
         <div class="video-placeholder">
@@ -104,7 +109,7 @@ class NxMediaList extends LitElement {
         </div>
       `;
     }
-    
+
     if (ext === 'pdf') {
       return html`
         <div class="document-placeholder">
@@ -114,38 +119,23 @@ class NxMediaList extends LitElement {
         </div>
       `;
     }
-    
+
     return html`
       <div class="unknown-placeholder">
         <svg class="unknown-icon">
-          <use href="#S2IconHome20N-icon"></use>
+          <use href="#S2_Icon_FileConvert_20_N"></use>
         </svg>
       </div>
     `;
   }
 
   getMediaName(media) {
-    return media.mediaName || media.mediaPath.split('/').pop() || 'Unknown';
+    return media.mediaName || media.mediaUrl.split('/').pop() || 'Unknown';
   }
 
-  getMediaType(mediaPath) {
-    const ext = mediaPath.split('.').pop()?.toLowerCase();
-    if (this.isImage(mediaPath)) return 'IMAGE';
-    if (ext === 'mp4') return 'VIDEO';
-    if (ext === 'pdf') return 'DOCUMENT';
-    return 'UNKNOWN';
-  }
-
-  isImage(mediaPath) {
-    const ext = mediaPath.split('.').pop()?.toLowerCase();
-    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
-  }
-
-  getShortPath(path) {
-    if (!path) return '';
-    const parts = path.split('/');
-    if (parts.length <= 2) return path;
-    return `.../${parts.slice(-2).join('/')}`;
+  isImage(mediaUrl) {
+    const ext = mediaUrl.split('.').pop()?.toLowerCase();
+    return IMAGE_EXTENSIONS.includes(ext);
   }
 }
 
