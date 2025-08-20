@@ -17,7 +17,8 @@ class NxMediaList extends LitElement {
 
   handleMediaClick(e) {
     const { path } = e.currentTarget.dataset;
-    this.dispatchEvent(new CustomEvent('mediaClick', { detail: { mediaUrl: path } }));
+    const media = this.mediaData.find((m) => m.url === path || m.mediaUrl === path);
+    this.dispatchEvent(new CustomEvent('mediaClick', { detail: { media } }));
   }
 
   handleInfoClick(e, media) {

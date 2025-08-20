@@ -386,22 +386,46 @@ export async function saveMediaJson(data, org, repo) {
   });
 }
 
+let lastMediaJsonModified = null;
+
+async function checkMediaJsonModified(org, repo) {
+  try {
+    const mediaFolderPath = `/${org}/${repo}/.media`;
+    const resp = await daFetch(`${DA_ORIGIN}/source${mediaFolderPath}`);
+
+    if (!resp.ok) return true;
+
+    const folderData = await resp.json();
+    const mediaJsonPath = getMediaJsonPath(org, repo);
+    const mediaJsonEntry = folderData.find((item) => item.path === mediaJsonPath);
+
+    if (!mediaJsonEntry) return true;
+
+    const currentModified = mediaJsonEntry.lastModified;
+    return currentModified !== lastMediaJsonModified;
+  } catch (error) {
+    console.warn('Failed to check media.json modification:', error);
+    return true;
+  }
+}
+
 export async function loadMediaJson(org, repo) {
   const path = getMediaJsonPath(org, repo);
+
+  if (lastMediaJsonModified) {
+    const modified = await checkMediaJsonModified(org, repo);
+    if (!modified) {
+      return null;
+    }
+  }
+
   const resp = await daFetch(`${DA_ORIGIN}/source${path}`);
   if (!resp.ok) return null;
 
   const jsonData = await resp.json();
+  lastMediaJsonModified = new Date().toISOString();
 
-  if (Array.isArray(jsonData)) {
-    return jsonData;
-  }
-
-  if (jsonData && jsonData.data && Array.isArray(jsonData.data)) {
-    return jsonData.data;
-  }
-
-  return [];
+  return jsonData;
 }
 
 async function saveToJson(data, filename) {
@@ -451,6 +475,24 @@ export async function saveScanMetadata(org, repo, rootData, folderData = {}) {
   await Promise.all(folderPromises);
 
   return results;
+}
+
+export async function checkScanLock(org, repo) {
+  const path = getScanLockPath(org, repo);
+  try {
+    const response = await daFetch(`${DA_ORIGIN}/source${path}`);
+    if (response.ok) {
+      const lockData = await response.json();
+      return {
+        exists: true,
+        timestamp: lockData.data?.[0]?.timestamp || lockData.timestamp,
+        locked: lockData.data?.[0]?.locked || lockData.locked,
+      };
+    }
+    return { exists: false };
+  } catch (error) {
+    return { exists: false };
+  }
 }
 
 export async function createScanLock(org, repo) {
@@ -611,6 +653,20 @@ export default async function runScan(path, updateTotal, org, repo) {
   const rootPages = [];
   const folderFiles = {};
   const rootFolders = [];
+
+  // Check if a scan is already running
+  const existingLock = await checkScanLock(org, repo);
+  if (existingLock.exists && existingLock.locked) {
+    const lockAge = Date.now() - existingLock.timestamp;
+    const maxLockAge = 30 * 60 * 1000; // 30 minutes
+
+    if (lockAge < maxLockAge) {
+      throw new Error(`Scan already in progress. Lock created ${Math.round(lockAge / 1000 / 60)} minutes ago.`);
+    } else {
+      // Lock is stale, remove it and continue
+      await removeScanLock(org, repo);
+    }
+  }
 
   await createScanLock(org, repo);
 
@@ -780,4 +836,68 @@ export default async function runScan(path, updateTotal, org, repo) {
 
   const duration = getDuration();
   return { duration: `${duration}s`, hasChanges: hasActualChanges };
+}
+
+export async function copyImageToClipboard(imageUrl) {
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+  }
+
+  const blob = await response.blob();
+
+  // Convert image to PNG if it's not a supported format
+  let clipboardBlob = blob;
+  let mimeType = blob.type;
+
+  if (!['image/png', 'image/gif', 'image/webp'].includes(blob.type)) {
+    // Convert JPEG and other formats to PNG for clipboard compatibility
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = URL.createObjectURL(blob);
+    });
+
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+
+    clipboardBlob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, 'image/png');
+    });
+    mimeType = 'image/png';
+
+    URL.revokeObjectURL(img.src);
+  }
+
+  const clipboardItem = new ClipboardItem({ [mimeType]: clipboardBlob });
+  await navigator.clipboard.write([clipboardItem]);
+}
+
+export function aggregateMediaData(mediaData) {
+  if (!mediaData) return [];
+
+  const aggregatedMedia = new Map();
+  mediaData.forEach((item) => {
+    const mediaUrl = item.url;
+    if (!aggregatedMedia.has(mediaUrl)) {
+      aggregatedMedia.set(mediaUrl, {
+        ...item,
+        mediaUrl,
+        usageCount: 0,
+        isUsed: false,
+      });
+    }
+    const aggregated = aggregatedMedia.get(mediaUrl);
+    aggregated.usageCount += 1;
+    if (item.doc && item.doc.trim()) {
+      aggregated.isUsed = true;
+    }
+  });
+
+  return Array.from(aggregatedMedia.values());
 }
