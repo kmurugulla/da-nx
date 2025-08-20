@@ -26,6 +26,21 @@ class NxMediaList extends LitElement {
     this.dispatchEvent(new CustomEvent('mediaInfo', { detail: { media } }));
   }
 
+  handleUsageClick(e, media) {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent('mediaInfo', { detail: { media } }));
+  }
+
+  handlePreviewClick(e, media) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(media.mediaUrl).then(() => {
+      // Could add a toast notification here if needed
+      console.log('Media URL copied to clipboard');
+    }).catch(err => {
+      console.error('Failed to copy URL:', err);
+    });
+  }
+
   render() {
     if (!this.mediaData || this.mediaData.length === 0) {
       if (this.isScanning) {
@@ -58,21 +73,17 @@ class NxMediaList extends LitElement {
         <div class="list-content">
           ${this.mediaData.map((media) => html`
             <div class="media-item" data-path="${media.mediaUrl}" @click=${this.handleMediaClick}>
-              <div class="item-preview">
+              <div class="item-preview clickable" @click=${(e) => this.handlePreviewClick(e, media)} title="Click to copy media URL">
                 ${this.renderMediaPreview(media)}
               </div>
               <div class="item-name">${this.getMediaName(media)}</div>
               <div class="item-type">${getDisplayMediaType(media)}</div>
               <div class="item-usage">
-                ${media.usageCount > 0 ? html`
-                  <span class="usage-badge used">Used (${media.usageCount})</span>
-                ` : html`
-                  <span class="usage-badge unused">Unused</span>
-                `}
+                <span class="usage-badge used clickable" @click=${(e) => this.handleUsageClick(e, media)} title="View usage details">Usage (${media.usageCount || 0})</span>
               </div>
               <div class="item-alt">
                 ${!media.alt && media.type && media.type.startsWith('img >') ? html`
-                  <span class="missing-alt-indicator" title="Missing alt text">
+                  <span class="missing-alt-indicator clickable" @click=${(e) => this.handleUsageClick(e, media)} title="View usage details">
                     NO ALT
                   </span>
                 ` : html`

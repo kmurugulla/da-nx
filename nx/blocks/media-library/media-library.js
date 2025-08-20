@@ -17,7 +17,7 @@ import './views/folder/folder.js';
 import './views/list/list.js';
 import './views/mediainfo/mediainfo.js';
 
-const EL_NAME = 'nx-media-scanner';
+const EL_NAME = 'nx-media-library';
 const nx = `${new URL(import.meta.url).origin}/nx`;
 const sl = await getStyle(`${nx}/public/sl/styles.css`);
 const slComponents = await getStyle(`${nx}/public/sl/components.css`);
@@ -27,7 +27,7 @@ const ICONS = [
   `${nx}/public/icons/S2_Icon_Close_20_N.svg`,
 ];
 
-class NxMediaScanner extends LitElement {
+class NxMediaLibrary extends LitElement {
   static properties = {
     sitePath: { attribute: false },
     _error: { state: true },
@@ -523,9 +523,9 @@ class NxMediaScanner extends LitElement {
   }
 }
 
-customElements.define(EL_NAME, NxMediaScanner);
+customElements.define(EL_NAME, NxMediaLibrary);
 
-function setupMediaScanner(el) {
+function setupMediaLibrary(el) {
   let cmp = document.querySelector(EL_NAME);
   if (!cmp) {
     cmp = document.createElement(EL_NAME);
@@ -537,8 +537,8 @@ function setupMediaScanner(el) {
 
 export default function init(el) {
   el.innerHTML = '';
-  setupMediaScanner(el);
+      setupMediaLibrary(el);
   window.addEventListener('hashchange', (e) => {
-    setupMediaScanner(el, e);
+          setupMediaLibrary(el, e);
   });
 }

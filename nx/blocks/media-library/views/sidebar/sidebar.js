@@ -105,7 +105,7 @@ class NxMediaSidebar extends LitElement {
           <h1 class="sidebar-title">Media Library</h1>
         </div>
         <div class="filter-section">
-          <h3>MEDIA TYPES</h3>
+          <h3>FILTERS</h3>
           <ul class="filter-list">
             <li>
               <button 
@@ -197,40 +197,14 @@ class NxMediaSidebar extends LitElement {
                 </ul>
               </li>
             ` : ''}
-          </ul>
-        </div>
-
-        <div class="filter-section">
-          <h3>USAGE STATUS</h3>
-          <ul class="filter-list">
             <li>
               <button 
                 data-filter="missingAlt" 
                 @click=${this.handleFilter}
                 class="${this._activeFilter === 'missingAlt' ? 'active' : ''}"
               >
-                Missing Alt Text
+                No Alt
                 <span class="count">${counts.missingAlt}</span>
-              </button>
-            </li>
-            <li>
-              <button 
-                data-filter="used" 
-                @click=${this.handleFilter}
-                class="${this._activeFilter === 'used' ? 'active' : ''}"
-              >
-                Used Media
-                <span class="count">${counts.used}</span>
-              </button>
-            </li>
-            <li>
-              <button 
-                data-filter="unused" 
-                @click=${this.handleFilter}
-                class="${this._activeFilter === 'unused' ? 'active' : ''}"
-              >
-                Unused Media
-                <span class="count">${counts.unused}</span>
               </button>
             </li>
           </ul>
@@ -239,7 +213,7 @@ class NxMediaSidebar extends LitElement {
         ${this.selectedDocument && this.documentMediaBreakdown ? html`
           <div class="filter-section">
             <div class="document-header">
-              <h3>DOCUMENT MEDIA</h3>
+              <h3>DOCUMENT FILTERS</h3>
             </div>
             <div class="document-info">
               <div class="document-name" title="${this.selectedDocument}">
@@ -312,7 +286,7 @@ class NxMediaSidebar extends LitElement {
                     @click=${this.handleDocumentFilter}
                     class="${this._activeFilter === 'documentMissingAlt' ? 'active' : ''}"
                   >
-                    Missing Alt Text
+                    No Alt
                     <span class="count">${this.documentMediaBreakdown.missingAlt}</span>
                   </button>
                 </li>

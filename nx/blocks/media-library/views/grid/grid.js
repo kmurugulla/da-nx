@@ -27,6 +27,11 @@ class NxMediaGrid extends LitElement {
     this.dispatchEvent(new CustomEvent('mediaInfo', { detail: { media } }));
   }
 
+  handleUsageClick(e, media) {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent('mediaInfo', { detail: { media } }));
+  }
+
   render() {
     if (!this.mediaData || this.mediaData.length === 0) {
       if (this.isScanning) {
@@ -57,17 +62,13 @@ class NxMediaGrid extends LitElement {
                 <h3 class="media-name">${this.getMediaName(media)}</h3>
                 <div class="media-meta">
                   <span class="media-type">${getDisplayMediaType(media)}</span>
-                  ${(media.usageCount && media.usageCount > 0) ? html`
-                    <span class="media-used">Usage (${media.usageCount})</span>
-                  ` : html`
-                    <span class="media-unused">Unused</span>
-                  `}
+                  <span class="media-used clickable" @click=${(e) => this.handleUsageClick(e, media)} title="View usage details">Usage (${media.usageCount || 0})</span>
                   <div class="media-actions">
                     <sl-button variant="primary" size="small" @click=${(e) => this.handleInfoClick(e, media)} title="View details">
                       INFO
                     </sl-button>
                     ${!media.alt && media.type && media.type.startsWith('img >') ? html`
-                      <span class="missing-alt-indicator" title="Missing alt text">
+                      <span class="missing-alt-indicator clickable" @click=${(e) => this.handleUsageClick(e, media)} title="View usage details">
                         NO ALT
                       </span>
                     ` : ''}

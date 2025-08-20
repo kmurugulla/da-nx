@@ -87,6 +87,15 @@
   justify-content: center;
 }
 
+.item-preview.clickable {
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.item-preview.clickable:hover {
+  border-color: var(--s2-blue-400);
+}
+
 .item-preview img {
   width: 100%;
   height: 100%;
@@ -118,6 +127,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: default;
 }
 
 .item-type {
@@ -128,6 +138,7 @@
   font-size: 0.7rem;
   font-weight: bold;
   max-width: fit-content;
+  cursor: default;
 }
 
 .item-usage {
@@ -150,6 +161,10 @@
 .usage-badge.unused {
   background: var(--s2-gray-75);
   color: var(--s2-gray-700);
+}
+
+.usage-badge.clickable {
+  cursor: pointer;
 }
 
 .item-alt {
@@ -184,4 +199,8 @@
   text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.missing-alt-indicator.clickable {
+  cursor: pointer;
 }

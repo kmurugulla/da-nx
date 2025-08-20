@@ -23,7 +23,7 @@ function getContentEnv(location, key, envs) {
 const CONTENT_ORIGIN = (() => getContentEnv(window.location, 'da-content', DA_CONTENT_ENVS))();
 
 function getMediaLibraryPath(org, repo) {
-  return `/${org}/${repo}/.media`;
+  return `/${org}/${repo}/.da/media`;
 }
 
 function getMediaJsonPath(org, repo) {
@@ -71,51 +71,6 @@ function resolveMediaUrl(src, docPath, org, repo) {
 
     return resolvedPath;
   }
-}
-
-function generateSelector(element) {
-  if (element.id) {
-    return `#${element.id}`;
-  }
-
-  const path = [];
-  let current = element;
-
-  while (current && current !== document.body && current.parentElement) {
-    let selector = current.tagName.toLowerCase();
-
-    if (current.id) {
-      selector = `#${current.id}`;
-      path.unshift(selector);
-      break;
-    }
-
-    if (current.className) {
-      const classes = current.className.split(' ').filter((c) => c.trim());
-      if (classes.length > 0) {
-        selector += `.${classes.join('.')}`;
-      }
-    }
-
-    const parent = current.parentElement;
-    if (parent) {
-      const currentTagName = current.tagName;
-      const siblings = Array.from(parent.children)
-        .filter((child) => child.tagName === currentTagName);
-      if (siblings.length > 1) {
-        const index = siblings.indexOf(current) + 1;
-        selector += `:nth-child(${index})`;
-      }
-    }
-
-    path.unshift(selector);
-    current = current.parentElement;
-  }
-
-  const maxDepth = 5;
-  const finalPath = path.slice(-maxDepth);
-
-  return finalPath.join(' > ');
 }
 
 function extractSurroundingContext(element, maxLength = 100) {
@@ -181,7 +136,6 @@ function createMediaUsage(resolvedUrl, src, docPath, type, element, alt = null) 
     doc: extractRelativePath(docPath),
     alt,
     type,
-    selector: generateSelector(element),
     ctx: extractSurroundingContext(element),
   };
 }
@@ -443,7 +397,7 @@ let lastMediaJsonModified = null;
 
 async function checkMediaJsonModified(org, repo) {
   try {
-    const mediaFolderPath = `/${org}/${repo}/.media`;
+    const mediaFolderPath = getMediaLibraryPath(org, repo);
     const mediaJsonPath = getMediaJsonPath(org, repo);
 
     let mediaJsonEntry = null;
@@ -633,7 +587,8 @@ export function groupUsagesByPath(usages) {
 
 export function getEditUrl(org, repo, docPath) {
   if (!docPath || !org || !repo) return null;
-  return `https://da.live/edit#/${org}/${repo}${docPath}`;
+  const cleanPath = docPath.replace(/\.html$/, '');
+  return `https://da.live/edit#/${org}/${repo}${cleanPath}`;
 }
 
 export function getViewUrl(org, repo, docPath) {
@@ -642,7 +597,43 @@ export function getViewUrl(org, repo, docPath) {
   return `https://main--${repo}--${org}.aem.page${cleanPath}`;
 }
 
-export async function updateDocumentAltText(org, repo, docPath, htmlSelector, altText) {
+function normalizeUrl(url) {
+  if (!url) return '';
+
+  // Remove protocol and domain to get just the path
+  try {
+    const urlObj = new URL(url);
+    return urlObj.pathname;
+  } catch {
+    // If it's not a valid URL, return as is (might be a relative path)
+    return url;
+  }
+}
+
+function urlsMatch(url1, url2) {
+  if (!url1 || !url2) return false;
+
+  // Normalize both URLs to just their paths
+  const path1 = normalizeUrl(url1);
+  const path2 = normalizeUrl(url2);
+
+  // Direct match
+  if (path1 === path2) return true;
+
+  // Handle cases where one might have leading slash and other doesn't
+  const normalizedPath1 = path1.startsWith('/') ? path1 : `/${path1}`;
+  const normalizedPath2 = path2.startsWith('/') ? path2 : `/${path2}`;
+
+  if (normalizedPath1 === normalizedPath2) return true;
+
+  // Handle relative paths by comparing file names
+  const fileName1 = path1.split('/').pop();
+  const fileName2 = path2.split('/').pop();
+
+  return fileName1 === fileName2 && fileName1 && fileName2;
+}
+
+export async function updateDocumentAltText(org, repo, docPath, mediaUrl, altText) {
   const response = await daFetch(`${DA_ORIGIN}/source/${org}/${repo}${docPath}`);
   if (!response.ok) {
     throw new Error('Failed to fetch document');
@@ -652,12 +643,24 @@ export async function updateDocumentAltText(org, repo, docPath, htmlSelector, al
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlContent, 'text/html');
 
-  const imgElement = doc.querySelector(htmlSelector);
-  if (!imgElement) {
-    throw new Error('Image element not found in document');
-  }
+  // Find all img elements with matching src that don't have alt text
+  const imgElements = doc.querySelectorAll('img');
+  let updated = false;
 
-  imgElement.setAttribute('alt', altText);
+  imgElements.forEach((img) => {
+    const imgSrc = img.getAttribute('src');
+    if (imgSrc && !img.getAttribute('alt')) {
+      // Use lenient URL matching
+      if (urlsMatch(imgSrc, mediaUrl)) {
+        img.setAttribute('alt', altText);
+        updated = true;
+      }
+    }
+  });
+
+  if (!updated) {
+    throw new Error('No matching image elements without alt text found in document');
+  }
 
   // Save the entire document, not just the main content
   const fullDocumentContent = doc.documentElement.outerHTML;
@@ -841,7 +844,6 @@ export default async function runScan(path, updateTotal, org, repo) {
           doc: '',
           alt: '',
           type,
-          selector: '',
           ctx: '',
         });
         mediaTotal += 1;
@@ -889,7 +891,6 @@ export default async function runScan(path, updateTotal, org, repo) {
       doc: item.doc || '',
       alt: item.alt || '',
       type: item.type || '',
-      selector: item.selector || '',
       ctx: item.ctx || '',
     });
   });

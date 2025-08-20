@@ -173,6 +173,7 @@
   border-radius: var(--s2-radius-75);
   font-size: 0.7rem;
   font-weight: bold;
+  cursor: default;
 }
 
 .media-used {
@@ -184,13 +185,8 @@
   font-weight: bold;
 }
 
-.media-unused {
-  background: var(--s2-gray-75);
-  color: var(--s2-gray-700);
-  padding: var(--spacing-100) var(--spacing-300);
-  border-radius: var(--s2-radius-75);
-  font-size: 0.7rem;
-  font-weight: bold;
+.media-used.clickable {
+  cursor: pointer;
 }
 
 .media-actions {
@@ -216,4 +212,8 @@
   text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.missing-alt-indicator.clickable {
+  cursor: pointer;
 }

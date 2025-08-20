@@ -161,10 +161,8 @@ class NxMediaInfo extends LitElement {
         org,
         repo,
         usage.doc,
-        usage.selector,
+        this.media.url,
         this._newAltText,
-        daFetch,
-        DA_ORIGIN,
       );
 
       const usageIndex = this._usageData.findIndex((u) => u.doc === usage.doc);
