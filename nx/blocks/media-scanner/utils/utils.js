@@ -425,7 +425,15 @@ export async function loadMediaJson(org, repo) {
   const jsonData = await resp.json();
   lastMediaJsonModified = new Date().toISOString();
 
-  return jsonData;
+  if (Array.isArray(jsonData)) {
+    return jsonData;
+  }
+
+  if (jsonData && jsonData.data && Array.isArray(jsonData.data)) {
+    return jsonData.data;
+  }
+
+  return [];
 }
 
 async function saveToJson(data, filename) {
