@@ -1,14 +1,8 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
-import getSvg from '../../../../public/utils/svg.js';
 import { getMediaCounts, getAvailableSubtypes } from '../../utils/utils.js';
 
 const styles = await getStyle(import.meta.url);
-const nx = `${new URL(import.meta.url).origin}/nx`;
-
-const ICONS = [
-  `${nx}/public/icons/S2_Icon_Close_20_N.svg`,
-];
 
 class NxMediaSidebar extends LitElement {
   static properties = {
@@ -33,8 +27,6 @@ class NxMediaSidebar extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.shadowRoot.adoptedStyleSheets = [styles];
-
-    getSvg({ parent: this.shadowRoot, paths: ICONS });
   }
 
   updated(changedProperties) {
@@ -83,25 +75,23 @@ class NxMediaSidebar extends LitElement {
 
   getDisplayName(fullPath) {
     if (!fullPath) return '';
-    
+
     // Extract just the filename from the path
     const pathParts = fullPath.split('/').filter(Boolean);
     const fileName = pathParts[pathParts.length - 1];
-    
+
     // Remove file extension for cleaner display
     return fileName.replace(/\.[^/.]+$/, '');
   }
 
-
-
   handleDocumentFilter(e) {
     const filterType = e.target.dataset.filter;
     this._activeFilter = filterType;
-    this.dispatchEvent(new CustomEvent('documentFilter', { 
-      detail: { 
+    this.dispatchEvent(new CustomEvent('documentFilter', {
+      detail: {
         type: filterType,
-        document: this.selectedDocument 
-      } 
+        document: this.selectedDocument,
+      },
     }));
   }
 
