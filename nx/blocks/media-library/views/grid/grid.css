@@ -1,0 +1,219 @@
+/* Grid component styles - inherits CSS variables from parent */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 400px;
+  text-align: center;
+  color: var(--s2-gray-700);
+}
+
+.empty-state h2 {
+  margin: 0 0 var(--spacing-200);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--s2-gray-800);
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--s2-gray-600);
+}
+
+.media-main {
+  flex: 1;
+  padding: var(--spacing-200);
+  overflow-y: auto;
+  background: #fff;
+  border: none;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--spacing-200);
+  padding-bottom: var(--spacing-400);
+  margin-bottom: var(--spacing-400);
+  min-height: 0;
+}
+
+/* Responsive grid */
+@media (max-width: 1400px) {
+  .media-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+@media (max-width: 1200px) {
+  .media-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .media-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+.media-card {
+  background: var(--s2-gray-50);
+  border: 1px solid var(--s2-gray-200);
+  border-radius: var(--s2-radius-100);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+  padding: 0;
+}
+
+.media-card:hover {
+  box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+  transform: translateY(-2px);
+  border-color: var(--s2-blue-700);
+}
+
+.media-preview {
+  height: 280px;
+  background: var(--s2-gray-75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--s2-gray-200);
+  position: relative;
+}
+
+.media-preview img,
+.media-preview video,
+.media-preview iframe {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 0.2s ease;
+}
+
+.media-preview video {
+  object-fit: contain;
+  z-index: 2;
+  position: relative;
+}
+
+.media-preview iframe {
+  border: none;
+  object-fit: contain;
+  z-index: 2;
+  position: relative;
+}
+
+.media-card:hover .media-preview img,
+.media-card:hover .media-preview video {
+  transform: scale(1.05);
+}
+
+.video-placeholder,
+.document-placeholder,
+.unknown-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--s2-gray-200);
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+
+.media-preview .play-icon,
+.media-preview .document-icon,
+.media-preview .unknown-icon {
+  width: 2rem;
+  height: 2rem;
+  color: var(--s2-gray-700);
+}
+
+.media-info {
+  padding: var(--spacing-200);
+  position: relative;
+  background: #2d3748;
+}
+
+.media-name {
+  margin: 0 0 var(--spacing-100);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: white;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.media-meta {
+  display: flex;
+  gap: var(--spacing-100);
+  margin-bottom: var(--spacing-100);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.media-type {
+  background: var(--s2-blue-200);
+  color: var(--s2-blue-800);
+  padding: var(--spacing-100) var(--spacing-300);
+  border-radius: var(--s2-radius-75);
+  font-size: 0.7rem;
+  font-weight: bold;
+  cursor: default;
+}
+
+.media-used {
+  background: linear-gradient(135deg, var(--s2-green-200) 0%, var(--s2-green-300) 100%);
+  color: var(--s2-green-900);
+  padding: var(--spacing-100) var(--spacing-300);
+  border-radius: var(--s2-radius-75);
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+.media-used.clickable {
+  cursor: pointer;
+}
+
+.media-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-100);
+  margin-left: auto;
+}
+
+.missing-alt-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: 1px solid var(--s2-orange-600);
+  border-radius: var(--s2-radius-75);
+  background: var(--s2-orange-600);
+  color: #fff;
+  min-width: 60px;
+  height: 24px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.missing-alt-indicator.clickable {
+  cursor: pointer;
+}
