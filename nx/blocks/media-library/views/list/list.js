@@ -36,7 +36,7 @@ class NxMediaList extends LitElement {
     navigator.clipboard.writeText(media.mediaUrl).then(() => {
       // Could add a toast notification here if needed
       console.log('Media URL copied to clipboard');
-    }).catch(err => {
+    }).catch((err) => {
       console.error('Failed to copy URL:', err);
     });
   }

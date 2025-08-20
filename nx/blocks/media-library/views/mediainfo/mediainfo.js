@@ -12,8 +12,6 @@ import {
   updateDocumentAltText,
   EXIF_JS_URL,
 } from '../../utils/utils.js';
-import { daFetch } from '../../../../utils/daFetch.js';
-import { DA_ORIGIN } from '../../../../public/utils/constants.js';
 import loadScript from '../../../../utils/script.js';
 
 const styles = await getStyle(import.meta.url);

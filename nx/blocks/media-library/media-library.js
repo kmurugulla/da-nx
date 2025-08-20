@@ -537,8 +537,8 @@ function setupMediaLibrary(el) {
 
 export default function init(el) {
   el.innerHTML = '';
-      setupMediaLibrary(el);
+  setupMediaLibrary(el);
   window.addEventListener('hashchange', (e) => {
-          setupMediaLibrary(el, e);
+    setupMediaLibrary(el, e);
   });
 }
