@@ -156,3 +156,29 @@
   color: var(--s2-blue-800);
   font-weight: 600;
 }
+
+/* Document Header Styles */
+
+.document-header {
+  margin-bottom: var(--spacing-200);
+}
+
+.document-header h3 {
+  margin: 0;
+  color: var(--s2-gray-700);
+}
+
+.document-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-200);
+}
+
+.document-name {
+  font-weight: 600;
+  color: var(--s2-gray-800);
+  font-size: var(--s2-font-size-200);
+  line-height: 1.3;
+  word-break: break-word;
+  margin-bottom: var(--spacing-200);
+}

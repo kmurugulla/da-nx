@@ -32,6 +32,7 @@ class NxMediaTopBar extends LitElement {
     this._scanProgress = { pages: 0, media: 0 };
     this._duration = null;
     this._hasChanges = null;
+    this._statusTimeout = null;
   }
 
   updated(changedProperties) {
@@ -39,6 +40,15 @@ class NxMediaTopBar extends LitElement {
 
     if (changedProperties.has('currentView') && this.currentView) {
       this._currentView = this.currentView;
+    }
+
+    if (this._duration && !this._isScanning && !this._statusTimeout) {
+      this.setScanStatusTimeout();
+    }
+
+    if (this._isScanning && this._statusTimeout) {
+      clearTimeout(this._statusTimeout);
+      this._statusTimeout = null;
     }
   }
 
@@ -62,6 +72,17 @@ class NxMediaTopBar extends LitElement {
 
   handleFolderClick() {
     this.dispatchEvent(new CustomEvent('openFolderDialog'));
+  }
+
+  setScanStatusTimeout(duration = 5000) {
+    if (this._statusTimeout) {
+      clearTimeout(this._statusTimeout);
+    }
+
+    this._statusTimeout = setTimeout(() => {
+      this.dispatchEvent(new CustomEvent('clearScanStatus'));
+      this._statusTimeout = null;
+    }, duration);
   }
 
   handleClearFolderFilter() {
@@ -155,17 +176,6 @@ class NxMediaTopBar extends LitElement {
               <span class="filter-badge">${this.folderFilterPaths.length}</span>
             ` : ''}
           </button>
-          ${this.folderFilterPaths && this.folderFilterPaths.length > 0 ? html`
-            <button
-              class="view-btn clear-filter-btn"
-              title="Clear folder filter"
-              @click=${this.handleClearFolderFilter}
-            >
-              <svg class="icon">
-                <use href="#S2_Icon_Close_20_N"></use>
-              </svg>
-            </button>
-          ` : ''}
         </div>
       </div>
     `;

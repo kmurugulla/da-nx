@@ -28,7 +28,7 @@
   flex: 1;
   padding: var(--spacing-200);
   overflow-y: auto;
-  background: var(--s2-gray-50);
+  background: #fff;
   border: none;
   min-height: 0;
   height: 100%;

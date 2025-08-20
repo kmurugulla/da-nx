@@ -22,7 +22,6 @@ function getContentEnv(location, key, envs) {
 
 const CONTENT_ORIGIN = (() => getContentEnv(window.location, 'da-content', DA_CONTENT_ENVS))();
 
-// Path utilities
 function getMediaLibraryPath(org, repo) {
   return `/${org}/${repo}/.media`;
 }
@@ -157,13 +156,12 @@ export const MEDIA_EXTENSIONS = [
   ...AUDIO_EXTENSIONS,
 ];
 
-// Internal helper functions
 function extractFileExtension(filePath) {
   return filePath?.split('.').pop()?.toLowerCase();
 }
 
 function detectMediaTypeFromExtension(ext) {
-  if (IMAGE_EXTENSIONS.includes(ext)) return 'image';
+  if (IMAGE_EXTENSIONS.includes(ext)) return 'img';
   if (VIDEO_EXTENSIONS.includes(ext)) return 'video';
   if (DOCUMENT_EXTENSIONS.includes(ext)) return 'document';
   if (AUDIO_EXTENSIONS.includes(ext)) return 'audio';
@@ -211,12 +209,12 @@ function isMediaFile(ext) {
   return MEDIA_EXTENSIONS.includes(lowerExt);
 }
 
-// Media type utilities
 export function getMediaType(media) {
   const type = media.type || '';
   if (type.startsWith('img >')) return 'image';
   if (type.startsWith('video >')) return 'video';
   if (type.startsWith('document >')) return 'document';
+  if (type.startsWith('link >')) return 'link';
 
   const mediaUrl = media.url || media.mediaUrl || '';
   const ext = extractFileExtension(mediaUrl);
@@ -271,6 +269,7 @@ export function getMediaCounts(mediaData) {
   const uniqueImages = new Set();
   const uniqueVideos = new Set();
   const uniqueDocuments = new Set();
+  const uniqueLinks = new Set();
   const uniqueUsed = new Set();
   const uniqueUnused = new Set();
   const uniqueMissingAlt = new Set();
@@ -285,8 +284,10 @@ export function getMediaCounts(mediaData) {
       uniqueImages.add(mediaUrl);
     } else if (mediaType === 'video') {
       uniqueVideos.add(mediaUrl);
-    } else {
+    } else if (mediaType === 'document') {
       uniqueDocuments.add(mediaUrl);
+    } else if (mediaType === 'link') {
+      uniqueLinks.add(mediaUrl);
     }
 
     if (media.doc && media.doc.trim()) {
@@ -305,29 +306,81 @@ export function getMediaCounts(mediaData) {
     images: uniqueImages.size,
     videos: uniqueVideos.size,
     documents: uniqueDocuments.size,
+    links: uniqueLinks.size,
     used: uniqueUsed.size,
     unused: uniqueUnused.size,
     missingAlt: uniqueMissingAlt.size,
   };
 }
 
+export function getDocumentMediaBreakdown(mediaData, documentPath) {
+  if (!mediaData || !documentPath) return null;
+
+  const documentMedia = mediaData.filter((media) => media.doc === documentPath);
+
+  if (documentMedia.length === 0) return null;
+
+  const uniqueMedia = new Set();
+  const uniqueImages = new Set();
+  const uniqueVideos = new Set();
+  const uniqueDocuments = new Set();
+  const uniqueLinks = new Set();
+  const uniqueMissingAlt = new Set();
+
+  documentMedia.forEach((media) => {
+    const mediaUrl = media.url || media.mediaUrl || '';
+    uniqueMedia.add(mediaUrl);
+
+    const mediaType = getMediaType(media);
+
+    if (mediaType === 'image') {
+      uniqueImages.add(mediaUrl);
+    } else if (mediaType === 'video') {
+      uniqueVideos.add(mediaUrl);
+    } else if (mediaType === 'document') {
+      uniqueDocuments.add(mediaUrl);
+    } else if (mediaType === 'link') {
+      uniqueLinks.add(mediaUrl);
+    }
+
+    if (!media.alt && media.type && media.type.startsWith('img >')) {
+      uniqueMissingAlt.add(mediaUrl);
+    }
+  });
+
+  return {
+    total: uniqueMedia.size,
+    images: uniqueImages.size,
+    videos: uniqueVideos.size,
+    documents: uniqueDocuments.size,
+    links: uniqueLinks.size,
+    missingAlt: uniqueMissingAlt.size,
+    used: uniqueMedia.size,
+    unused: 0,
+  };
+}
+
 export function getAvailableSubtypes(mediaData, activeFilter = 'images') {
-  if (!mediaData || activeFilter !== 'images') return [];
+  if (!mediaData || (activeFilter !== 'images' && activeFilter !== 'links')) return [];
 
   const subtypes = new Map();
 
   mediaData.forEach((media) => {
     const type = media.type || '';
-    if (type.includes(' > ') && (type.startsWith('img >') || type.startsWith('link >'))) {
-      const subtype = getSubtype(media);
-      if (subtype) {
-        const normalizedSubtype = subtype.toUpperCase().trim();
-        const mediaUrl = media.url || media.mediaUrl || '';
+    if (type.includes(' > ')) {
+      const baseType = type.split(' > ')[0];
+      if ((activeFilter === 'images' && baseType === 'img')
+          || (activeFilter === 'links' && baseType === 'link')) {
+        const subtype = getSubtype(media);
+        if (subtype) {
+          const normalizedSubtype = subtype.toUpperCase().trim();
+          const mediaUrl = media.url || media.mediaUrl || '';
 
-        if (!subtypes.has(normalizedSubtype)) {
-          subtypes.set(normalizedSubtype, new Set());
+          if (!subtypes.has(normalizedSubtype)) {
+            subtypes.set(normalizedSubtype, new Set());
+          }
+          subtypes.get(normalizedSubtype).add(mediaUrl);
         }
-        subtypes.get(normalizedSubtype).add(mediaUrl);
       }
     }
   });
@@ -391,21 +444,30 @@ let lastMediaJsonModified = null;
 async function checkMediaJsonModified(org, repo) {
   try {
     const mediaFolderPath = `/${org}/${repo}/.media`;
-    const resp = await daFetch(`${DA_ORIGIN}/source${mediaFolderPath}`);
-
-    if (!resp.ok) return true;
-
-    const folderData = await resp.json();
     const mediaJsonPath = getMediaJsonPath(org, repo);
-    const mediaJsonEntry = folderData.find((item) => item.path === mediaJsonPath);
 
-    if (!mediaJsonEntry) return true;
+    let mediaJsonEntry = null;
+
+    const callback = async (item) => {
+      if (item.path === mediaJsonPath) {
+        mediaJsonEntry = item;
+      }
+    };
+
+    const { results } = crawl({ path: mediaFolderPath, callback });
+    await results;
+
+    if (!mediaJsonEntry) {
+      return { hasChanged: true, fileTimestamp: null };
+    }
 
     const currentModified = mediaJsonEntry.lastModified;
-    return currentModified !== lastMediaJsonModified;
+    const hasChanged = currentModified !== lastMediaJsonModified;
+
+    return { hasChanged, fileTimestamp: currentModified };
   } catch (error) {
     console.warn('Failed to check media.json modification:', error);
-    return true;
+    return { hasChanged: true, fileTimestamp: null };
   }
 }
 
@@ -413,9 +475,12 @@ export async function loadMediaJson(org, repo) {
   const path = getMediaJsonPath(org, repo);
 
   if (lastMediaJsonModified) {
-    const modified = await checkMediaJsonModified(org, repo);
-    if (!modified) {
+    const { hasChanged, fileTimestamp } = await checkMediaJsonModified(org, repo);
+    if (!hasChanged) {
       return null;
+    }
+    if (fileTimestamp) {
+      lastMediaJsonModified = fileTimestamp;
     }
   }
 
@@ -423,7 +488,10 @@ export async function loadMediaJson(org, repo) {
   if (!resp.ok) return null;
 
   const jsonData = await resp.json();
-  lastMediaJsonModified = new Date().toISOString();
+
+  if (!lastMediaJsonModified) {
+    lastMediaJsonModified = Date.now();
+  }
 
   if (Array.isArray(jsonData)) {
     return jsonData;
@@ -662,16 +730,14 @@ export default async function runScan(path, updateTotal, org, repo) {
   const folderFiles = {};
   const rootFolders = [];
 
-  // Check if a scan is already running
   const existingLock = await checkScanLock(org, repo);
   if (existingLock.exists && existingLock.locked) {
     const lockAge = Date.now() - existingLock.timestamp;
-    const maxLockAge = 30 * 60 * 1000; // 30 minutes
+    const maxLockAge = 30 * 60 * 1000;
 
     if (lockAge < maxLockAge) {
       throw new Error(`Scan already in progress. Lock created ${Math.round(lockAge / 1000 / 60)} minutes ago.`);
     } else {
-      // Lock is stale, remove it and continue
       await removeScanLock(org, repo);
     }
   }
@@ -836,7 +902,7 @@ export default async function runScan(path, updateTotal, org, repo) {
     const saveResults = await saveScanMetadata(org, repo, rootPages, folderFiles);
 
     if (saveResults.errors.length > 0) {
-      // Some metadata files failed to save
+      console.warn('Some scan metadata files failed to save:', saveResults.errors);
     }
   }
 
@@ -854,12 +920,10 @@ export async function copyImageToClipboard(imageUrl) {
 
   const blob = await response.blob();
 
-  // Convert image to PNG if it's not a supported format
   let clipboardBlob = blob;
   let mimeType = blob.type;
 
   if (!['image/png', 'image/gif', 'image/webp'].includes(blob.type)) {
-    // Convert JPEG and other formats to PNG for clipboard compatibility
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const img = new Image();
@@ -884,6 +948,44 @@ export async function copyImageToClipboard(imageUrl) {
 
   const clipboardItem = new ClipboardItem({ [mimeType]: clipboardBlob });
   await navigator.clipboard.write([clipboardItem]);
+}
+
+export async function copyMediaToClipboard(media) {
+  if (!media) {
+    throw new Error('No media provided');
+  }
+
+  const mediaUrl = media.url || media.mediaUrl;
+  if (!mediaUrl) {
+    throw new Error('No media URL found');
+  }
+
+  const mediaType = getMediaType(media);
+
+  if (mediaType === 'image') {
+    try {
+      await copyImageToClipboard(mediaUrl);
+      return { heading: 'Copied', message: 'Image copied to clipboard.' };
+    } catch (imageError) {
+      const imageName = media.name || 'Image';
+      const imageLink = `<a href="${mediaUrl}" title="${imageName}">${imageName}</a>`;
+      await navigator.clipboard.writeText(imageLink);
+      return { heading: 'Copied', message: 'Image link copied to clipboard.' };
+    }
+  } else {
+    let clipboardContent = '';
+
+    if (mediaType === 'video') {
+      clipboardContent = `<a href="${mediaUrl}" title="${media.name || 'Video'}">${media.name || 'Video'}</a>`;
+    } else if (mediaType === 'document') {
+      clipboardContent = `<a href="${mediaUrl}" title="${media.name || 'Document'}">${media.name || 'Document'}</a>`;
+    } else {
+      clipboardContent = `<a href="${mediaUrl}" title="${media.name || 'Media'}">${media.name || 'Media'}</a>`;
+    }
+
+    await navigator.clipboard.writeText(clipboardContent);
+    return { heading: 'Copied', message: 'Link copied to clipboard.' };
+  }
 }
 
 export function aggregateMediaData(mediaData) {

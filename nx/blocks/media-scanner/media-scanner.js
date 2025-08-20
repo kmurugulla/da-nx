@@ -3,14 +3,13 @@ import getStyle from '../../utils/styles.js';
 import getSvg from '../../public/utils/svg.js';
 import runScan, {
   loadMediaJson,
-  copyImageToClipboard,
+  copyMediaToClipboard,
   getMediaCounts,
+  getDocumentMediaBreakdown,
   aggregateMediaData,
   getMediaType,
 } from './utils/utils.js';
 import '../../public/sl/components.js';
-
-// Import view components
 import './views/topbar/topbar.js';
 import './views/sidebar/sidebar.js';
 import './views/grid/grid.js';
@@ -19,8 +18,6 @@ import './views/list/list.js';
 import './views/mediainfo/mediainfo.js';
 
 const EL_NAME = 'nx-media-scanner';
-
-// Styles
 const nx = `${new URL(import.meta.url).origin}/nx`;
 const sl = await getStyle(`${nx}/public/sl/styles.css`);
 const slComponents = await getStyle(`${nx}/public/sl/components.css`);
@@ -66,6 +63,7 @@ class NxMediaScanner extends LitElement {
     this._folderFilterPaths = [];
     this._hasChanges = null;
     this._message = null;
+    this._pollingStarted = false;
   }
 
   connectedCallback() {
@@ -73,76 +71,52 @@ class NxMediaScanner extends LitElement {
     this.shadowRoot.adoptedStyleSheets = [sl, slComponents, styles];
 
     getSvg({ parent: this.shadowRoot, paths: ICONS });
-
-    // Start polling for media updates
-    this.startPolling();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    // Stop polling when component is removed
     if (this._pollingInterval) {
       clearInterval(this._pollingInterval);
-    }
-    if (this._scanPollingInterval) {
-      clearInterval(this._scanPollingInterval);
     }
   }
 
   startPolling() {
-    // Poll every 30 seconds for media updates
     this._pollingInterval = setInterval(async () => {
-      if (this.sitePath && !this._isScanning) {
+      if (this.sitePath) {
         const [org, repo] = this.sitePath.split('/').slice(1, 3);
-        await this.loadMediaData(org, repo);
+        if (org && repo) {
+          await this.loadMediaData(org, repo);
+        } else {
+          console.warn('Invalid org/repo from sitePath:', this.sitePath);
+        }
       }
-    }, 30000); // 30 seconds
-
-    this._scanPollingInterval = setInterval(async () => {
-      if (this.sitePath && !this._isScanning) {
-        const [org, repo] = this.sitePath.split('/').slice(1, 3);
-        await this.startPollingBackgroundScan(org, repo);
-      }
-    }, 120000);
+    }, 60000);
   }
 
   update(props) {
-    if (props.has('sitePath') && this.sitePath) this.scan();
+    if (props.has('sitePath') && this.sitePath) {
+      if (!this._pollingStarted) {
+        this.startPolling();
+        this._pollingStarted = true;
+      }
+      this.scan();
+    }
     super.update();
   }
 
   async scan() {
     const [org, repo] = this.sitePath.split('/').slice(1, 3);
 
-    // Load existing media data immediately
     await this.loadMediaData(org, repo);
 
-    // Start background scan (non-blocking)
     this.startBackgroundScan(org, repo);
   }
 
   async startBackgroundScan(org, repo) {
     this._isScanning = true;
 
-    const updateTotal = async (type, totalScanned, processedCount) => {
-      if (type === 'page') {
-        this._pageTotal = processedCount;
-        this._scanProgress = { ...this._scanProgress, pages: totalScanned };
-        this.requestUpdate();
-      }
-      if (type === 'media') {
-        this._mediaTotal = processedCount;
-        this._scanProgress = { ...this._scanProgress, media: totalScanned };
-        this.requestUpdate();
-      }
-
-      await new Promise((resolve) => {
-        setTimeout(resolve, 10);
-      });
-    };
-
     try {
-      const result = await runScan(this.sitePath, updateTotal, org, repo);
+      const result = await runScan(this.sitePath, this.updateScanProgress.bind(this), org, repo);
       this._duration = result.duration;
       this._hasChanges = result.hasChanges;
 
@@ -158,10 +132,27 @@ class NxMediaScanner extends LitElement {
     }
   }
 
+  updateScanProgress(type, totalScanned, processedCount) {
+    if (type === 'page') {
+      this._pageTotal = processedCount;
+      this._scanProgress = { ...this._scanProgress, pages: totalScanned };
+      this.requestUpdate();
+    }
+    if (type === 'media') {
+      this._mediaTotal = processedCount;
+      this._scanProgress = { ...this._scanProgress, media: totalScanned };
+      this.requestUpdate();
+    }
+
+    return new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+  }
+
   async startPollingBackgroundScan(org, repo) {
     try {
       this._isScanning = true;
-      await runScan(org, repo);
+      await runScan(this.sitePath, this.updateScanProgress.bind(this), org, repo);
       await this.loadMediaData(org, repo);
     } catch (error) {
       console.error('Background scan failed:', error);
@@ -200,6 +191,33 @@ class NxMediaScanner extends LitElement {
     return pathParts[1] || '';
   }
 
+  get selectedDocument() {
+    if (this._folderFilterPaths && this._folderFilterPaths.length > 0) {
+      return this._folderFilterPaths[0];
+    }
+
+    if (this._mediaData && this._mediaData.length > 0) {
+      const indexDoc = this._mediaData.find((media) => media.doc === '/index.html');
+      if (indexDoc) {
+        return '/index.html';
+      }
+
+      const firstDoc = this._mediaData.find((media) => media.doc && media.doc.trim());
+      if (firstDoc) {
+        return firstDoc.doc;
+      }
+    }
+
+    return null;
+  }
+
+  get documentMediaBreakdown() {
+    if (!this.selectedDocument || !this._mediaData) {
+      return null;
+    }
+    return getDocumentMediaBreakdown(this._mediaData, this.selectedDocument);
+  }
+
   render() {
     return html`
       <div class="media-library">
@@ -214,14 +232,19 @@ class NxMediaScanner extends LitElement {
           @search=${this.handleSearch}
           @viewChange=${this.handleViewChange}
           @openFolderDialog=${this.handleOpenFolderDialog}
-          @clearFolderFilter=${this.handleClearFolderFilter}
+          @clearScanStatus=${this.handleClearScanStatus}
         ></nx-media-topbar>
         
         <nx-media-sidebar
           .mediaData=${this._mediaData}
-          ._activeFilter=${this._activeFilter}
+          .activeFilter=${this._activeFilter}
+          .selectedDocument=${this.selectedDocument}
+          .documentMediaBreakdown=${this.documentMediaBreakdown}
+          .folderFilterPaths=${this._folderFilterPaths}
           @filter=${this.handleFilter}
           @subtypeFilter=${this.handleSubtypeFilter}
+          @clearDocumentFilter=${this.handleClearDocumentFilter}
+          @documentFilter=${this.handleDocumentFilter}
         ></nx-media-sidebar>
         
         <div class="media-content">
@@ -313,7 +336,6 @@ class NxMediaScanner extends LitElement {
 
     let filtered = aggregateMediaData(this._mediaData);
 
-    // Apply active filter
     switch (this._activeFilter) {
       case 'images':
         filtered = filtered.filter((item) => getMediaType(item) === 'image');
@@ -324,6 +346,9 @@ class NxMediaScanner extends LitElement {
       case 'documents':
         filtered = filtered.filter((item) => getMediaType(item) === 'document');
         break;
+      case 'links':
+        filtered = filtered.filter((item) => getMediaType(item) === 'link');
+        break;
       case 'used':
         filtered = filtered.filter((item) => item.isUsed);
         break;
@@ -331,34 +356,48 @@ class NxMediaScanner extends LitElement {
         filtered = filtered.filter((item) => !item.isUsed);
         break;
       case 'missingAlt':
-        // Only show images that are missing alt text, but don't reset other filters
+        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !item.alt && item.type && item.type.startsWith('img >'));
+        break;
+      case 'documentTotal':
+        break;
+      case 'documentImages':
+        filtered = filtered.filter((item) => getMediaType(item) === 'image');
+        break;
+      case 'documentVideos':
+        filtered = filtered.filter((item) => getMediaType(item) === 'video');
+        break;
+      case 'documentDocuments':
+        filtered = filtered.filter((item) => getMediaType(item) === 'document');
+        break;
+      case 'documentLinks':
+        filtered = filtered.filter((item) => getMediaType(item) === 'link');
+        break;
+      case 'documentMissingAlt':
         filtered = filtered.filter((item) => getMediaType(item) === 'image' && !item.alt && item.type && item.type.startsWith('img >'));
         break;
       case 'all':
       default:
-        // No filtering needed
         break;
     }
 
-    // Apply subtype filtering
     if (this._selectedSubtypes.length > 0) {
       filtered = filtered.filter((item) => {
         const itemType = item.type || '';
 
         if (!itemType.includes(' > ')) return false;
 
+        if (!(itemType.startsWith('img >') || itemType.startsWith('link >'))) return false;
+
         const [, subtype] = itemType.split(' > ');
         return this._selectedSubtypes.includes(subtype.toUpperCase());
       });
     }
 
-    // Apply folder filter if paths are selected
     if (this._folderFilterPaths.length > 0) {
       const hasMatchingPath = (item) => this._folderFilterPaths.some((path) => item.doc === path);
       filtered = filtered.filter(hasMatchingPath);
     }
 
-    // Apply search filter if there's a search query
     if (this._searchQuery && this._searchQuery.trim()) {
       const query = this._searchQuery.toLowerCase().trim();
       filtered = filtered.filter((item) => (item.name && item.name.toLowerCase().includes(query))
@@ -366,7 +405,6 @@ class NxMediaScanner extends LitElement {
         || (item.doc && item.doc.toLowerCase().includes(query)));
     }
 
-    // Sort alphabetically by name
     filtered.sort((a, b) => {
       const nameA = (a.name || '').toLowerCase();
       const nameB = (b.name || '').toLowerCase();
@@ -381,40 +419,11 @@ class NxMediaScanner extends LitElement {
     if (!media) return;
 
     try {
-      const mediaUrl = media.url || media.mediaUrl;
-      if (!mediaUrl) return;
-
-      const mediaType = getMediaType(media);
-
-      if (mediaType === 'image') {
-        try {
-          await copyImageToClipboard(mediaUrl);
-          this._message = { heading: 'Copied', message: 'Image copied to clipboard.', open: true };
-        } catch (imageError) {
-          // If image copying fails, fall back to copying the image link
-          const imageName = media.name || 'Image';
-          const imageLink = `<a href="${mediaUrl}" title="${imageName}">${imageName}</a>`;
-          await navigator.clipboard.writeText(imageLink);
-          this._message = { heading: 'Copied', message: 'Image link copied to clipboard.', open: true };
-        }
-      } else {
-        let clipboardContent = '';
-
-        if (mediaType === 'video') {
-          clipboardContent = `<a href="${mediaUrl}" title="${media.name || 'Video'}">${media.name || 'Video'}</a>`;
-        } else if (mediaType === 'document') {
-          clipboardContent = `<a href="${mediaUrl}" title="${media.name || 'Document'}">${media.name || 'Document'}</a>`;
-        } else {
-          clipboardContent = `<a href="${mediaUrl}" title="${media.name || 'Media'}">${media.name || 'Media'}</a>`;
-        }
-
-        await navigator.clipboard.writeText(clipboardContent);
-        this._message = { heading: 'Copied', message: 'Link copied to clipboard.', open: true };
-      }
+      const result = await copyMediaToClipboard(media);
+      this.setMessage({ ...result, open: true });
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
-      // Show a generic error message if everything fails
-      this._message = { heading: 'Error', message: 'Failed to copy to clipboard.', open: true };
+      this.setMessage({ heading: 'Error', message: 'Failed to copy to clipboard.', open: true });
     }
   }
 
@@ -438,7 +447,6 @@ class NxMediaScanner extends LitElement {
   handleAltTextUpdated(e) {
     const { media } = e.detail;
 
-    // Update the media data in the main array
     if (this._mediaData) {
       const index = this._mediaData.findIndex((item) => item.mediaUrl === media.mediaUrl);
       if (index !== -1) {
@@ -465,20 +473,53 @@ class NxMediaScanner extends LitElement {
   handleFolderFilterChange(e) {
     const { paths } = e.detail;
     this._folderFilterPaths = paths;
-    // Real-time filtering - no need to close dialog
   }
 
   handleClearFolderFilter() {
     this._folderFilterPaths = [];
-    // Clear the selected paths in the folder dialog as well
     const folderDialog = this.shadowRoot.querySelector('nx-media-folder-dialog');
     if (folderDialog) {
       folderDialog.selectedPaths = new Set();
     }
   }
 
+  handleClearDocumentFilter() {
+    this._folderFilterPaths = [];
+    const folderDialog = this.shadowRoot.querySelector('nx-media-folder-dialog');
+    if (folderDialog) {
+      folderDialog.selectedPaths = new Set();
+    }
+  }
+
+  handleDocumentFilter(e) {
+    const { type } = e.detail;
+    this._activeFilter = type;
+  }
+
+  handleClearScanStatus() {
+    this._duration = null;
+    this._hasChanges = null;
+  }
+
+  setMessage(message, duration = 3000) {
+    this._message = message;
+
+    if (this._messageTimeout) {
+      clearTimeout(this._messageTimeout);
+    }
+
+    this._messageTimeout = setTimeout(() => {
+      this._message = null;
+      this._messageTimeout = null;
+    }, duration);
+  }
+
   handleToastClose() {
     this._message = null;
+    if (this._messageTimeout) {
+      clearTimeout(this._messageTimeout);
+      this._messageTimeout = null;
+    }
   }
 }
 

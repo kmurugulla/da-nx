@@ -115,14 +115,3 @@
   text-align: center;
   line-height: 1;
 }
-
-.clear-filter-btn {
-  background: linear-gradient(135deg, var(--s2-red-200) 0%, var(--s2-red-300) 100%);
-  border-color: var(--s2-red-300);
-  color: var(--s2-red-900);
-}
-
-.clear-filter-btn:hover {
-  background: linear-gradient(135deg, var(--s2-red-300) 0%, var(--s2-red-800) 100%);
-  border-color: var(--s2-red-800);
-}

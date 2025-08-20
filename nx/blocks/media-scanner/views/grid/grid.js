@@ -58,7 +58,7 @@ class NxMediaGrid extends LitElement {
                 <div class="media-meta">
                   <span class="media-type">${getDisplayMediaType(media)}</span>
                   ${(media.usageCount && media.usageCount > 0) ? html`
-                    <span class="media-used">Used (${media.usageCount})</span>
+                    <span class="media-used">Usage (${media.usageCount})</span>
                   ` : html`
                     <span class="media-unused">Unused</span>
                   `}
