@@ -658,8 +658,10 @@ export async function updateDocumentAltText(org, repo, docPath, htmlSelector, al
   }
 
   imgElement.setAttribute('alt', altText);
-  const mainContent = doc.querySelector('main')?.innerHTML || doc.body.innerHTML;
-  const blob = new Blob([mainContent], { type: 'text/html' });
+
+  // Save the entire document, not just the main content
+  const fullDocumentContent = doc.documentElement.outerHTML;
+  const blob = new Blob([fullDocumentContent], { type: 'text/html' });
   const formData = new FormData();
   formData.append('data', blob);
 

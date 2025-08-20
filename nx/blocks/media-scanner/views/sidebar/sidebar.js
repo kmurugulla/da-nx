@@ -46,7 +46,7 @@ class NxMediaSidebar extends LitElement {
     }
 
     // Clear document filter when "All Media" is clicked
-    if (filterType === 'all' && this._folderFilterPaths && this._folderFilterPaths.length > 0) {
+    if (filterType === 'all' && this.folderFilterPaths && this.folderFilterPaths.length > 0) {
       this.dispatchEvent(new CustomEvent('clearDocumentFilter'));
     }
 

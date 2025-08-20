@@ -151,10 +151,11 @@ class NxMediaInfo extends LitElement {
     if (!this._newAltText.trim()) return;
 
     try {
-      const url = new URL(this.media.url);
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      const org = pathParts[0];
-      const repo = pathParts[1];
+      const { org, repo } = this;
+
+      if (!org || !repo) {
+        throw new Error('Missing org or repo information');
+      }
 
       await updateDocumentAltText(
         org,
