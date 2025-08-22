@@ -13,6 +13,8 @@ import {
   EXIF_JS_URL,
 } from '../../utils/utils.js';
 import loadScript from '../../../../utils/script.js';
+import { daFetch } from '../../../../utils/daFetch.js';
+import { DA_ORIGIN } from '../../../../public/utils/constants.js';
 
 const styles = await getStyle(import.meta.url);
 
@@ -40,7 +42,7 @@ class NxMediaInfo extends LitElement {
     super();
     this.isOpen = false;
     this.media = null;
-    this._activeTab = 'usage';
+    this._activeTab = 'metadata'; // Default to metadata tab
     this._exifData = null;
     this._loading = false;
     this._fileSize = null;
@@ -52,6 +54,7 @@ class NxMediaInfo extends LitElement {
     this._usageLoading = false;
     this._editingAltUsage = null;
     this.allMediaData = [];
+    this._pdfBlobUrls = new Map();
   }
 
   connectedCallback() {
@@ -59,11 +62,23 @@ class NxMediaInfo extends LitElement {
     this.shadowRoot.adoptedStyleSheets = [styles];
   }
 
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    // Clean up blob URLs
+    this._pdfBlobUrls.forEach((blobUrl) => {
+      URL.revokeObjectURL(blobUrl);
+    });
+    this._pdfBlobUrls.clear();
+  }
+
   updated(changedProperties) {
     if (changedProperties.has('media') && this.media) {
       this.loadFileSize();
       if (this.isImage(this.media.url)) {
         this.loadExifData();
+      }
+      if (this.isPdf(this.media.url)) {
+        this.loadPdfWithDaFetch(this.media.url);
       }
       this.loadUsageData();
     }
@@ -114,9 +129,21 @@ class NxMediaInfo extends LitElement {
     this._usageLoading = true;
     try {
       const mediaUrl = this.media.url;
-      this._usageData = this.allMediaData.filter((item) => item.url === mediaUrl);
+      // Filter by URL and only include items with non-empty doc property
+      this._usageData = this.allMediaData.filter((item) => {
+        const hasValidDoc = item.doc && item.doc.trim();
+        return item.url === mediaUrl && hasValidDoc;
+      });
+
+      // If there are usages, switch to usage tab; otherwise stay on metadata tab
+      if (this._usageData.length > 0) {
+        this._activeTab = 'usage';
+      } else {
+        this._activeTab = 'metadata';
+      }
     } catch (error) {
       this._usageData = [];
+      this._activeTab = 'metadata';
     } finally {
       this._usageLoading = false;
     }
@@ -199,6 +226,66 @@ class NxMediaInfo extends LitElement {
     }
   }
 
+  async loadPdfWithDaFetch(pdfUrl) {
+    if (this._pdfBlobUrls.has(pdfUrl)) return; // Already loading or loaded
+
+    try {
+      const url = new URL(pdfUrl);
+
+      let response;
+
+      // Check if URL is from content.da.live - use daFetch for those
+      if (url.hostname.includes('content.da.live')) {
+        // Convert content.da.live URL to admin.da.live URL
+        const path = url.pathname;
+        const adminUrl = `${DA_ORIGIN}/source${path}`;
+        response = await daFetch(adminUrl);
+      } else {
+        // For other URLs, use regular fetch
+        response = await fetch(pdfUrl);
+      }
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        this._pdfBlobUrls.set(pdfUrl, blobUrl);
+        this.requestUpdate();
+
+        // Update file size and MIME type after loading
+        this.loadFileSize();
+      }
+    } catch (error) {
+      // Silent error handling
+    }
+  }
+
+  handlePdfLoad(e) {
+    const iframe = e.target;
+    const placeholder = iframe.nextElementSibling;
+    if (placeholder && placeholder.classList.contains('document-placeholder')) {
+      placeholder.style.display = 'none';
+    }
+  }
+
+  handlePdfError(e) {
+    const iframe = e.target;
+    iframe.style.display = 'none';
+    const placeholder = iframe.nextElementSibling;
+    if (placeholder && placeholder.classList.contains('document-placeholder')) {
+      placeholder.style.display = 'flex';
+    }
+  }
+
+  getFileName(url) {
+    try {
+      const urlObj = new URL(url);
+      const { pathname } = urlObj;
+      return pathname.split('/').pop() || '';
+    } catch {
+      return url.split('/').pop() || '';
+    }
+  }
+
   handleViewDocument(docPath) {
     if (!docPath) return;
 
@@ -224,36 +311,64 @@ class NxMediaInfo extends LitElement {
     return VIDEO_EXTENSIONS.includes(ext);
   }
 
+  isPdf(url) {
+    const ext = url.split('.').pop()?.toLowerCase();
+    return ext === 'pdf';
+  }
+
   async loadFileSize() {
     if (!this.media || !this.media.url) return;
 
     try {
-      const response = await fetch(this.media.url, { method: 'HEAD' });
-      if (response.ok) {
-        const contentLength = response.headers.get('content-length');
-        if (contentLength) {
-          this._fileSize = formatFileSize(parseInt(contentLength, 10));
+      // For PDFs, try to get info from the blob if available
+      if (this.isPdf(this.media.url) && this._pdfBlobUrls.has(this.media.url)) {
+        const blobUrl = this._pdfBlobUrls.get(this.media.url);
+        const response = await fetch(blobUrl);
+        if (response.ok) {
+          const blob = await response.blob();
+          this._fileSize = formatFileSize(blob.size);
+          this._mimeType = blob.type || 'application/pdf';
+        }
+      } else {
+        // Check if URL is from content.da.live - use daFetch for those
+        const url = new URL(this.media.url);
+        let response;
+
+        if (url.hostname.includes('content.da.live')) {
+          // Convert content.da.live URL to admin.da.live URL for HEAD request
+          const path = url.pathname;
+          const adminUrl = `${DA_ORIGIN}/source${path}`;
+          response = await daFetch(adminUrl, { method: 'HEAD' });
+        } else {
+          // For other URLs, use regular fetch
+          response = await fetch(this.media.url, { method: 'HEAD' });
+        }
+
+        if (response.ok) {
+          const contentLength = response.headers.get('content-length');
+          if (contentLength) {
+            this._fileSize = formatFileSize(parseInt(contentLength, 10));
+          } else {
+            this._fileSize = 'Unknown';
+          }
+
+          const contentType = response.headers.get('content-type');
+          if (contentType) {
+            const [mimeType] = contentType.split(';');
+            this._mimeType = mimeType;
+          } else {
+            this._mimeType = 'Unknown';
+          }
         } else {
           this._fileSize = 'Unknown';
-        }
-
-        const contentType = response.headers.get('content-type');
-        if (contentType) {
-          const [mimeType] = contentType.split(';');
-          this._mimeType = mimeType;
-        } else {
           this._mimeType = 'Unknown';
         }
-
-        const { origin, path } = extractMediaLocation(this.media.url);
-        this._mediaOrigin = origin;
-        this._mediaPath = path;
-      } else {
-        this._fileSize = 'Unknown';
-        this._mimeType = 'Unknown';
-        this._mediaOrigin = 'Unknown';
-        this._mediaPath = 'Unknown';
       }
+
+      // Extract media location
+      const { origin, path } = extractMediaLocation(this.media.url);
+      this._mediaOrigin = origin;
+      this._mediaPath = path;
     } catch (error) {
       this._fileSize = 'Unknown';
       this._mimeType = 'Unknown';
@@ -267,6 +382,8 @@ class NxMediaInfo extends LitElement {
   }
 
   renderUsageGroup(docPath, usages) {
+    const isPdf = this.isPdf(this.media.url);
+
     return html`
       <div class="usage-group">
         <div class="usage-group-header">
@@ -278,7 +395,7 @@ class NxMediaInfo extends LitElement {
             <thead>
               <tr>
                 <th>Type</th>
-                <th>Alt</th>
+                ${!isPdf ? html`<th>Alt</th>` : ''}
                 <th>Context</th>
                 <th>Actions</th>
               </tr>
@@ -303,6 +420,43 @@ class NxMediaInfo extends LitElement {
         <video src="${this.media.url}" controls class="preview-video">
           Your browser does not support the video tag.
         </video>
+      `;
+    }
+    if (this.isPdf(this.media.url)) {
+      const blobUrl = this._pdfBlobUrls.get(this.media.url);
+
+      if (blobUrl) {
+        // Use authenticated blob URL for iframe
+        return html`
+          <iframe 
+            src="${blobUrl}" 
+            class="pdf-preview"
+            @load=${this.handlePdfLoad}
+            @error=${this.handlePdfError}
+          >
+          </iframe>
+          <div class="document-placeholder">
+            <svg class="document-icon" viewBox="0 0 20 20">
+              <use href="#S2_Icon_FileConvert_20_N"></use>
+            </svg>
+          </div>
+        `;
+      }
+
+      // Show loading state
+      return html`
+        <div class="pdf-preview-container">
+          <div class="document-placeholder">
+            <svg class="document-icon" viewBox="0 0 20 20">
+              <use href="#S2_Icon_FileConvert_20_N"></use>
+            </svg>
+            <div class="pdf-info">
+              <span class="pdf-name">${this.getFileName(this.media.url)}</span>
+              <span class="pdf-type">PDF Document</span>
+              <span class="pdf-loading">Loading...</span>
+            </div>
+          </div>
+        </div>
       `;
     }
     return html`
@@ -351,6 +505,7 @@ class NxMediaInfo extends LitElement {
   }
 
   renderUsageTableRow(usage) {
+    const isPdf = this.isPdf(this.media.url);
     const isMissingAlt = !usage.alt && usage.type && usage.type.startsWith('img >');
     const isEditingAlt = this._editingAltUsage === usage.doc;
 
@@ -359,9 +514,11 @@ class NxMediaInfo extends LitElement {
         <td class="type-cell">
           <span class="type-badge">${getDisplayMediaType(usage)}</span>
         </td>
-        <td class="alt-cell">
-          ${this.renderAltCell(usage, isEditingAlt, isMissingAlt)}
-        </td>
+        ${!isPdf ? html`
+          <td class="alt-cell">
+            ${this.renderAltCell(usage, isEditingAlt, isMissingAlt)}
+          </td>
+        ` : ''}
         <td class="context-cell">
           ${this.renderContextCell(usage)}
         </td>
@@ -506,7 +663,7 @@ class NxMediaInfo extends LitElement {
 
     return html`
       <div class="no-usage">
-        <p>No usage details found for this media file.</p>
+        <p>Not Used</p>
       </div>
     `;
   }
@@ -515,7 +672,10 @@ class NxMediaInfo extends LitElement {
     return html`
       <div class="tab-content">
         <div class="usage-summary">
-          <p class="usage-count">Found in ${this._usageData.length} location${this._usageData.length !== 1 ? 's' : ''}</p>
+          ${this._usageData.length > 0
+    ? html`<p class="usage-count">Found in ${this._usageData.length} location${this._usageData.length !== 1 ? 's' : ''}</p>`
+    : html`<p class="usage-count">Not Used</p>`
+}
         </div>
 
         ${this.renderUsageContent()}
@@ -526,11 +686,13 @@ class NxMediaInfo extends LitElement {
   render() {
     if (!this.isOpen || !this.media) return '';
 
+    const displayName = this.media.name || this.getFileName(this.media.url) || 'Media Details';
+
     return html`
       <div class="modal-overlay" @click=${this.handleClose}>
         <div class="modal-content" @click=${(e) => e.stopPropagation()}>
           <div class="modal-header">
-            <h2>${this.media.name || 'Media Details'}</h2>
+            <h2>${displayName}</h2>
             <sl-button type="button" size="small" class="primary outline" @click=${this.handleClose} title="Close">
               Close
             </sl-button>
@@ -541,14 +703,16 @@ class NxMediaInfo extends LitElement {
           </div>
 
           <div class="modal-tabs">
-            <button 
-              type="button"
-              class="tab-btn ${this._activeTab === 'usage' ? 'active' : ''}"
-              data-tab="usage"
-              @click=${this.handleTabChange}
-            >
-              Usage (${this.media.usageCount || 0})
-            </button>
+            ${this._usageData.length > 0 ? html`
+              <button 
+                type="button"
+                class="tab-btn ${this._activeTab === 'usage' ? 'active' : ''}"
+                data-tab="usage"
+                @click=${this.handleTabChange}
+              >
+                Usage (${this._usageData.length})
+              </button>
+            ` : ''}
             <button 
               type="button"
               class="tab-btn ${this._activeTab === 'metadata' ? 'active' : ''}"

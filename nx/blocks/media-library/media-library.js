@@ -17,6 +17,12 @@ import './views/folder/folder.js';
 import './views/list/list.js';
 import './views/mediainfo/mediainfo.js';
 
+// Helper function to check if a media item is SVG
+function isSvgFile(media) {
+  const type = media.type || '';
+  return type === 'img > svg' || type === 'link > svg';
+}
+
 const EL_NAME = 'nx-media-library';
 const nx = `${new URL(import.meta.url).origin}/nx`;
 const sl = await getStyle(`${nx}/public/sl/styles.css`);
@@ -46,7 +52,6 @@ class NxMediaLibrary extends LitElement {
     _infoModalOpen: { state: true },
     _selectedMedia: { state: true },
     _activeFilter: { state: true },
-    _selectedSubtypes: { state: true },
     _folderFilterPaths: { state: true },
     _message: { state: true },
   };
@@ -59,11 +64,13 @@ class NxMediaLibrary extends LitElement {
     this._infoModalOpen = false;
     this._selectedMedia = null;
     this._activeFilter = 'all';
-    this._selectedSubtypes = [];
     this._folderFilterPaths = [];
     this._hasChanges = null;
     this._message = null;
     this._pollingStarted = false;
+    this._cachedData = null;
+    this._cacheKey = null;
+    this._isBackgroundScan = false;
   }
 
   connectedCallback() {
@@ -114,13 +121,25 @@ class NxMediaLibrary extends LitElement {
 
   async startBackgroundScan(org, repo) {
     this._isScanning = true;
+    this._isBackgroundScan = true; // Flag to prevent renders during background scan
 
     try {
       const result = await runScan(this.sitePath, this.updateScanProgress.bind(this), org, repo);
+
+      // Temporarily disable background scan flag to allow property updates
+      this._isBackgroundScan = false;
+
+      // Update scan results to show to user
       this._duration = result.duration;
       this._hasChanges = result.hasChanges;
 
-      await this.loadMediaData(org, repo);
+      // Re-enable background scan flag
+      this._isBackgroundScan = true;
+
+      // Only reload data if the scan found actual changes
+      if (result.hasChanges) {
+        await this.loadMediaData(org, repo);
+      }
     } catch (error) {
       if (error.message && error.message.includes('Scan already in progress')) {
         console.warn('Scan lock detected:', error.message);
@@ -129,6 +148,15 @@ class NxMediaLibrary extends LitElement {
       }
     } finally {
       this._isScanning = false;
+      this._isBackgroundScan = false; // Clear the flag
+
+      // Ensure scan results are displayed by triggering an update
+      this.requestUpdate();
+
+      // Reset scan progress to prevent unnecessary renders
+      this._pageTotal = 0;
+      this._mediaTotal = 0;
+      this._scanProgress = { pages: 0, media: 0 };
     }
   }
 
@@ -136,12 +164,18 @@ class NxMediaLibrary extends LitElement {
     if (type === 'page') {
       this._pageTotal = processedCount;
       this._scanProgress = { ...this._scanProgress, pages: totalScanned };
-      this.requestUpdate();
+      // Allow progress updates during background scans, but prevent final render
+      if (this._isScanning) {
+        this.requestUpdate();
+      }
     }
     if (type === 'media') {
       this._mediaTotal = processedCount;
       this._scanProgress = { ...this._scanProgress, media: totalScanned };
-      this.requestUpdate();
+      // Allow progress updates during background scans, but prevent final render
+      if (this._isScanning) {
+        this.requestUpdate();
+      }
     }
 
     return new Promise((resolve) => {
@@ -152,8 +186,12 @@ class NxMediaLibrary extends LitElement {
   async startPollingBackgroundScan(org, repo) {
     try {
       this._isScanning = true;
-      await runScan(this.sitePath, this.updateScanProgress.bind(this), org, repo);
-      await this.loadMediaData(org, repo);
+      const result = await runScan(this.sitePath, this.updateScanProgress.bind(this), org, repo);
+
+      // Only reload data if the scan found actual changes
+      if (result.hasChanges) {
+        await this.loadMediaData(org, repo);
+      }
     } catch (error) {
       console.error('Background scan failed:', error);
     } finally {
@@ -242,7 +280,6 @@ class NxMediaLibrary extends LitElement {
           .documentMediaBreakdown=${this.documentMediaBreakdown}
           .folderFilterPaths=${this._folderFilterPaths}
           @filter=${this.handleFilter}
-          @subtypeFilter=${this.handleSubtypeFilter}
           @clearDocumentFilter=${this.handleClearDocumentFilter}
           @documentFilter=${this.handleDocumentFilter}
         ></nx-media-sidebar>
@@ -322,23 +359,29 @@ class NxMediaLibrary extends LitElement {
 
   handleFilter(e) {
     this._activeFilter = e.detail.type;
-    if (e.detail.type !== 'missingAlt') {
-      this._selectedSubtypes = [];
-    }
-  }
-
-  handleSubtypeFilter(e) {
-    this._selectedSubtypes = e.detail.subtypes;
   }
 
   get filteredMediaData() {
     if (!this._mediaData) return [];
 
+    // Create a cache key based on all filter parameters
+    const filterKey = JSON.stringify({
+      mediaDataLength: this._mediaData.length,
+      activeFilter: this._activeFilter,
+      folderFilterPaths: this._folderFilterPaths,
+      searchQuery: this._searchQuery,
+    });
+
+    // Return cached result if filters haven't changed
+    if (this._cachedData && this._cacheKey === filterKey) {
+      return this._cachedData;
+    }
+
     let filtered = aggregateMediaData(this._mediaData);
 
     switch (this._activeFilter) {
       case 'images':
-        filtered = filtered.filter((item) => getMediaType(item) === 'image');
+        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !isSvgFile(item));
         break;
       case 'videos':
         filtered = filtered.filter((item) => getMediaType(item) === 'video');
@@ -349,6 +392,9 @@ class NxMediaLibrary extends LitElement {
       case 'links':
         filtered = filtered.filter((item) => getMediaType(item) === 'link');
         break;
+      case 'icons':
+        filtered = filtered.filter((item) => isSvgFile(item));
+        break;
       case 'used':
         filtered = filtered.filter((item) => item.isUsed);
         break;
@@ -356,12 +402,15 @@ class NxMediaLibrary extends LitElement {
         filtered = filtered.filter((item) => !item.isUsed);
         break;
       case 'missingAlt':
-        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !item.alt && item.type && item.type.startsWith('img >'));
+        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !item.alt && item.type && item.type.startsWith('img >') && !isSvgFile(item));
         break;
       case 'documentTotal':
         break;
       case 'documentImages':
-        filtered = filtered.filter((item) => getMediaType(item) === 'image');
+        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !isSvgFile(item));
+        break;
+      case 'documentIcons':
+        filtered = filtered.filter((item) => isSvgFile(item));
         break;
       case 'documentVideos':
         filtered = filtered.filter((item) => getMediaType(item) === 'video');
@@ -377,20 +426,9 @@ class NxMediaLibrary extends LitElement {
         break;
       case 'all':
       default:
+        // Exclude SVGs from All Media display to reduce clutter
+        filtered = filtered.filter((item) => !isSvgFile(item));
         break;
-    }
-
-    if (this._selectedSubtypes.length > 0) {
-      filtered = filtered.filter((item) => {
-        const itemType = item.type || '';
-
-        if (!itemType.includes(' > ')) return false;
-
-        if (!(itemType.startsWith('img >') || itemType.startsWith('link >'))) return false;
-
-        const [, subtype] = itemType.split(' > ');
-        return this._selectedSubtypes.includes(subtype.toUpperCase());
-      });
     }
 
     if (this._folderFilterPaths.length > 0) {
@@ -410,6 +448,9 @@ class NxMediaLibrary extends LitElement {
       const nameB = (b.name || '').toLowerCase();
       return nameA.localeCompare(nameB);
     });
+
+    this._cachedData = filtered;
+    this._cacheKey = filterKey;
 
     return filtered;
   }

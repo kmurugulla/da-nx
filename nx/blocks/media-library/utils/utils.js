@@ -115,6 +115,11 @@ function extractFileExtension(filePath) {
   return filePath?.split('.').pop()?.toLowerCase();
 }
 
+function isSvgFile(media) {
+  const type = media.type || '';
+  return type === 'img > svg' || type === 'link > svg';
+}
+
 function detectMediaTypeFromExtension(ext) {
   if (IMAGE_EXTENSIONS.includes(ext)) return 'img';
   if (VIDEO_EXTENSIONS.includes(ext)) return 'video';
@@ -224,6 +229,7 @@ export function getMediaCounts(mediaData) {
   const uniqueVideos = new Set();
   const uniqueDocuments = new Set();
   const uniqueLinks = new Set();
+  const uniqueIcons = new Set();
   const uniqueUsed = new Set();
   const uniqueUnused = new Set();
   const uniqueMissingAlt = new Set();
@@ -233,8 +239,11 @@ export function getMediaCounts(mediaData) {
     uniqueMedia.add(mediaUrl);
 
     const mediaType = getMediaType(media);
+    const isSvg = isSvgFile(media);
 
-    if (mediaType === 'image') {
+    if (isSvg) {
+      uniqueIcons.add(mediaUrl);
+    } else if (mediaType === 'image') {
       uniqueImages.add(mediaUrl);
     } else if (mediaType === 'video') {
       uniqueVideos.add(mediaUrl);
@@ -250,7 +259,7 @@ export function getMediaCounts(mediaData) {
       uniqueUnused.add(mediaUrl);
     }
 
-    if (!media.alt && media.type && media.type.startsWith('img >')) {
+    if (!media.alt && media.type && media.type.startsWith('img >') && !isSvg) {
       uniqueMissingAlt.add(mediaUrl);
     }
   });
@@ -261,6 +270,7 @@ export function getMediaCounts(mediaData) {
     videos: uniqueVideos.size,
     documents: uniqueDocuments.size,
     links: uniqueLinks.size,
+    icons: uniqueIcons.size,
     used: uniqueUsed.size,
     unused: uniqueUnused.size,
     missingAlt: uniqueMissingAlt.size,
@@ -279,6 +289,7 @@ export function getDocumentMediaBreakdown(mediaData, documentPath) {
   const uniqueVideos = new Set();
   const uniqueDocuments = new Set();
   const uniqueLinks = new Set();
+  const uniqueIcons = new Set();
   const uniqueMissingAlt = new Set();
 
   documentMedia.forEach((media) => {
@@ -286,8 +297,11 @@ export function getDocumentMediaBreakdown(mediaData, documentPath) {
     uniqueMedia.add(mediaUrl);
 
     const mediaType = getMediaType(media);
+    const isSvg = isSvgFile(media);
 
-    if (mediaType === 'image') {
+    if (isSvg) {
+      uniqueIcons.add(mediaUrl);
+    } else if (mediaType === 'image') {
       uniqueImages.add(mediaUrl);
     } else if (mediaType === 'video') {
       uniqueVideos.add(mediaUrl);
@@ -297,7 +311,7 @@ export function getDocumentMediaBreakdown(mediaData, documentPath) {
       uniqueLinks.add(mediaUrl);
     }
 
-    if (!media.alt && media.type && media.type.startsWith('img >')) {
+    if (!media.alt && media.type && media.type.startsWith('img >') && !isSvg) {
       uniqueMissingAlt.add(mediaUrl);
     }
   });
@@ -308,14 +322,15 @@ export function getDocumentMediaBreakdown(mediaData, documentPath) {
     videos: uniqueVideos.size,
     documents: uniqueDocuments.size,
     links: uniqueLinks.size,
+    icons: uniqueIcons.size,
     missingAlt: uniqueMissingAlt.size,
     used: uniqueMedia.size,
     unused: 0,
   };
 }
 
-export function getAvailableSubtypes(mediaData, activeFilter = 'images') {
-  if (!mediaData || (activeFilter !== 'images' && activeFilter !== 'links')) return [];
+export function getAvailableSubtypes(mediaData, activeFilter = 'links') {
+  if (!mediaData || activeFilter !== 'links') return [];
 
   const subtypes = new Map();
 
@@ -323,8 +338,7 @@ export function getAvailableSubtypes(mediaData, activeFilter = 'images') {
     const type = media.type || '';
     if (type.includes(' > ')) {
       const baseType = type.split(' > ')[0];
-      if ((activeFilter === 'images' && baseType === 'img')
-          || (activeFilter === 'links' && baseType === 'link')) {
+      if (activeFilter === 'links' && baseType === 'link') {
         const subtype = getSubtype(media);
         if (subtype) {
           const normalizedSubtype = subtype.toUpperCase().trim();
@@ -1006,8 +1020,10 @@ export function aggregateMediaData(mediaData) {
       });
     }
     const aggregated = aggregatedMedia.get(mediaUrl);
-    aggregated.usageCount += 1;
+
+    // Only increment usage count if there's a valid document path
     if (item.doc && item.doc.trim()) {
+      aggregated.usageCount += 1;
       aggregated.isUsed = true;
     }
   });

@@ -8,7 +8,6 @@ class NxMediaSidebar extends LitElement {
   static properties = {
     mediaData: { attribute: false },
     _activeFilter: { state: true },
-    _selectedSubtypes: { state: true },
     selectedDocument: { attribute: false },
     documentMediaBreakdown: { attribute: false },
     folderFilterPaths: { attribute: false },
@@ -17,7 +16,6 @@ class NxMediaSidebar extends LitElement {
 
   constructor() {
     super();
-    this._selectedSubtypes = new Set();
     this.selectedDocument = null;
     this.documentMediaBreakdown = null;
     this.folderFilterPaths = [];
@@ -41,10 +39,6 @@ class NxMediaSidebar extends LitElement {
     const filterType = e.target.dataset.filter;
     this._activeFilter = filterType;
 
-    if (filterType !== 'missingAlt') {
-      this._selectedSubtypes.clear();
-    }
-
     // Clear document filter when "All Media" is clicked
     if (filterType === 'all' && this.folderFilterPaths && this.folderFilterPaths.length > 0) {
       this.dispatchEvent(new CustomEvent('clearDocumentFilter'));
@@ -53,24 +47,8 @@ class NxMediaSidebar extends LitElement {
     this.dispatchEvent(new CustomEvent('filter', { detail: { type: filterType } }));
   }
 
-  handleSubtypeToggle(e) {
-    const { value: subtype, checked } = e.target;
-
-    if (checked) {
-      this._selectedSubtypes.add(subtype);
-    } else {
-      this._selectedSubtypes.delete(subtype);
-    }
-
-    this.dispatchEvent(new CustomEvent('subtypeFilter', { detail: { subtypes: Array.from(this._selectedSubtypes) } }));
-  }
-
   get mediaCounts() {
     return getMediaCounts(this.mediaData);
-  }
-
-  get availableSubtypes() {
-    return getAvailableSubtypes(this.mediaData, this._activeFilter);
   }
 
   getDisplayName(fullPath) {
@@ -97,7 +75,6 @@ class NxMediaSidebar extends LitElement {
 
   render() {
     const counts = this.mediaCounts;
-    const subtypes = this.availableSubtypes;
 
     return html`
       <aside class="media-sidebar">
@@ -127,26 +104,16 @@ class NxMediaSidebar extends LitElement {
                 <span class="count">${counts.images}</span>
               </button>
             </li>
-            ${this._activeFilter === 'images' && subtypes.length > 0 ? html`
-              <li class="subtype-container">
-                <ul class="subtype-list">
-                  ${subtypes.map(({ subtype, count }) => html`
-                    <li>
-                      <label class="subtype-item">
-                        <input 
-                          type="checkbox" 
-                          value="${subtype}"
-                          ?checked=${this._selectedSubtypes.has(subtype)}
-                          @change=${this.handleSubtypeToggle}
-                        >
-                        <span class="subtype-label">${subtype.toUpperCase()}</span>
-                        <span class="count">${count}</span>
-                      </label>
-                    </li>
-                  `)}
-                </ul>
-              </li>
-            ` : ''}
+            <li>
+              <button 
+                data-filter="icons" 
+                @click=${this.handleFilter}
+                class="${this._activeFilter === 'icons' ? 'active' : ''}"
+              >
+                Icons
+                <span class="count">${counts.icons}</span>
+              </button>
+            </li>
             <li>
               <button 
                 data-filter="videos" 
@@ -177,26 +144,6 @@ class NxMediaSidebar extends LitElement {
                 <span class="count">${counts.links}</span>
               </button>
             </li>
-            ${this._activeFilter === 'links' && subtypes.length > 0 ? html`
-              <li class="subtype-container">
-                <ul class="subtype-list">
-                  ${subtypes.map(({ subtype, count }) => html`
-                    <li>
-                      <label class="subtype-item">
-                        <input 
-                          type="checkbox" 
-                          value="${subtype}"
-                          ?checked=${this._selectedSubtypes.has(subtype)}
-                          @change=${this.handleSubtypeToggle}
-                        >
-                        <span class="subtype-label">${subtype.toUpperCase()}</span>
-                        <span class="count">${count}</span>
-                      </label>
-                    </li>
-                  `)}
-                </ul>
-              </li>
-            ` : ''}
             <li>
               <button 
                 data-filter="missingAlt" 
@@ -240,6 +187,18 @@ class NxMediaSidebar extends LitElement {
                   >
                     Images
                     <span class="count">${this.documentMediaBreakdown.images}</span>
+                  </button>
+                </li>
+              ` : ''}
+              ${this.documentMediaBreakdown.icons > 0 ? html`
+                <li>
+                  <button 
+                    data-filter="documentIcons" 
+                    @click=${this.handleDocumentFilter}
+                    class="${this._activeFilter === 'documentIcons' ? 'active' : ''}"
+                  >
+                    Icons
+                    <span class="count">${this.documentMediaBreakdown.icons}</span>
                   </button>
                 </li>
               ` : ''}
