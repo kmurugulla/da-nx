@@ -4,15 +4,21 @@ import getSvg from '../../../../utils/svg.js';
 import {
   IMAGE_EXTENSIONS,
   VIDEO_EXTENSIONS,
+} from '../../utils/types.js';
+import {
   getDisplayMediaType,
+} from '../../utils/types.js';
+import {
   formatFileSize,
   extractMediaLocation,
   groupUsagesByPath,
   getEditUrl,
   getViewUrl,
   updateDocumentAltText,
-  EXIF_JS_URL,
 } from '../../utils/utils.js';
+import {
+  EXIF_JS_URL,
+} from '../../utils/video.js';
 import loadScript from '../../../../utils/script.js';
 import { daFetch } from '../../../../utils/daFetch.js';
 import { DA_ORIGIN } from '../../../../public/utils/constants.js';

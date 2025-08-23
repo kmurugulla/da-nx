@@ -1,13 +1,10 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../utils/styles.js';
 import getSvg from '../../public/utils/svg.js';
-import runScan, {
-  loadMediaJson,
-  copyMediaToClipboard,
-  getMediaCounts,
-  getDocumentMediaBreakdown,
-  aggregateMediaData,
-} from './utils/utils.js';
+import runScan from './utils/scanning.js';
+import { copyMediaToClipboard } from './utils/utils.js';
+import { loadMediaJson } from './utils/storage.js';
+import { getMediaCounts, getDocumentMediaBreakdown, aggregateMediaData } from './utils/stats.js';
 import { applyFilter } from './utils/filters.js';
 import '../../public/sl/components.js';
 import './views/topbar/topbar.js';

@@ -1,6 +1,7 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
-import { IMAGE_EXTENSIONS, getDisplayMediaType, getVideoThumbnail, isVideoUrl } from '../../utils/utils.js';
+import { IMAGE_EXTENSIONS, getDisplayMediaType } from '../../utils/types.js';
+import { getVideoThumbnail, isVideoUrl } from '../../utils/video.js';
 
 const styles = await getStyle(import.meta.url);
 

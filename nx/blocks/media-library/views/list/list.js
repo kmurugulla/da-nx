@@ -1,7 +1,9 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
 import getSvg from '../../../../public/utils/svg.js';
-import { IMAGE_EXTENSIONS, getDisplayMediaType, createElement, getVideoThumbnail, isVideoUrl } from '../../utils/utils.js';
+import { IMAGE_EXTENSIONS, getDisplayMediaType } from '../../utils/types.js';
+import { createElement } from '../../utils/utils.js';
+import { getVideoThumbnail, isVideoUrl } from '../../utils/video.js';
 
 const styles = await getStyle(import.meta.url);
 const nx = `${new URL(import.meta.url).origin}/nx`;

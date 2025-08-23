@@ -1,4 +1,4 @@
-import { getMediaType, isSvgFile } from './utils.js';
+import { getMediaType, isSvgFile } from './types.js';
 
 // Filter configuration - easy to maintain and extend
 export const FILTER_CONFIG = {
