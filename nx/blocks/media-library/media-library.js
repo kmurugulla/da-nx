@@ -7,8 +7,8 @@ import runScan, {
   getMediaCounts,
   getDocumentMediaBreakdown,
   aggregateMediaData,
-  getMediaType,
 } from './utils/utils.js';
+import { applyFilter } from './utils/filters.js';
 import '../../public/sl/components.js';
 import './views/topbar/topbar.js';
 import './views/sidebar/sidebar.js';
@@ -16,12 +16,6 @@ import './views/grid/grid.js';
 import './views/folder/folder.js';
 import './views/list/list.js';
 import './views/mediainfo/mediainfo.js';
-
-// Helper function to check if a media item is SVG
-function isSvgFile(media) {
-  const type = media.type || '';
-  return type === 'img > svg' || type === 'link > svg';
-}
 
 const EL_NAME = 'nx-media-library';
 const nx = `${new URL(import.meta.url).origin}/nx`;
@@ -38,16 +32,10 @@ class NxMediaLibrary extends LitElement {
     sitePath: { attribute: false },
     _error: { state: true },
     _sitePathError: { state: true },
-    _pageTotal: { state: true },
-    _mediaTotal: { state: true },
-    _duration: { state: true },
-    _hasChanges: { state: true },
     _mediaData: { state: true },
     _filters: { state: true },
     _searchQuery: { state: true },
-    _isScanning: { state: true },
     _currentView: { state: true },
-    _scanProgress: { state: true },
     _hierarchyDialogOpen: { state: true },
     _infoModalOpen: { state: true },
     _selectedMedia: { state: true },
@@ -59,18 +47,21 @@ class NxMediaLibrary extends LitElement {
   constructor() {
     super();
     this._currentView = 'grid';
-    this._scanProgress = { pages: 0, media: 0 };
     this._hierarchyDialogOpen = false;
     this._infoModalOpen = false;
     this._selectedMedia = null;
     this._activeFilter = 'all';
     this._folderFilterPaths = [];
-    this._hasChanges = null;
     this._message = null;
     this._pollingStarted = false;
-    this._cachedData = null;
-    this._cacheKey = null;
-    this._isBackgroundScan = false;
+
+    // Non-reactive scan properties - don't trigger main component re-renders
+    this.scanProgress = { pages: 0, media: 0 };
+    this.pageTotal = 0;
+    this.mediaTotal = 0;
+    this.duration = null;
+    this.hasChanges = null;
+    this._isScanning = false;
   }
 
   connectedCallback() {
@@ -87,14 +78,16 @@ class NxMediaLibrary extends LitElement {
     }
   }
 
+  // ============================================================================
+  // INITIALIZATION & DATA LOADING
+  // ============================================================================
+
   startPolling() {
     this._pollingInterval = setInterval(async () => {
       if (this.sitePath) {
         const [org, repo] = this.sitePath.split('/').slice(1, 3);
         if (org && repo) {
           await this.loadMediaData(org, repo);
-        } else {
-          console.warn('Invalid org/repo from sitePath:', this.sitePath);
         }
       }
     }, 60000);
@@ -102,39 +95,42 @@ class NxMediaLibrary extends LitElement {
 
   update(props) {
     if (props.has('sitePath') && this.sitePath) {
-      if (!this._pollingStarted) {
-        this.startPolling();
-        this._pollingStarted = true;
-      }
-      this.scan();
+      this.initialize();
     }
     super.update();
   }
 
-  async scan() {
-    const [org, repo] = this.sitePath.split('/').slice(1, 3);
+  async initialize() {
+    const [org, repo] = this.sitePath?.split('/').slice(1, 3) || [];
+
+    if (!(org && repo)) {
+      return;
+    }
 
     await this.loadMediaData(org, repo);
-
     this.startBackgroundScan(org, repo);
+    if (!this._pollingStarted) {
+      this.startPolling();
+      this._pollingStarted = true;
+    }
   }
 
   async startBackgroundScan(org, repo) {
     this._isScanning = true;
-    this._isBackgroundScan = true; // Flag to prevent renders during background scan
+
+    // Update topbar immediately when scan starts
+    const topbarElement = this.shadowRoot.querySelector('nx-media-topbar');
+    if (topbarElement) {
+      topbarElement._isScanning = this._isScanning; // eslint-disable-line no-underscore-dangle
+      topbarElement.requestUpdate();
+    }
 
     try {
       const result = await runScan(this.sitePath, this.updateScanProgress.bind(this), org, repo);
 
-      // Temporarily disable background scan flag to allow property updates
-      this._isBackgroundScan = false;
-
       // Update scan results to show to user
-      this._duration = result.duration;
-      this._hasChanges = result.hasChanges;
-
-      // Re-enable background scan flag
-      this._isBackgroundScan = true;
+      this.duration = result.duration;
+      this.hasChanges = result.hasChanges;
 
       // Only reload data if the scan found actual changes
       if (result.hasChanges) {
@@ -142,60 +138,41 @@ class NxMediaLibrary extends LitElement {
       }
     } catch (error) {
       if (error.message && error.message.includes('Scan already in progress')) {
-        console.warn('Scan lock detected:', error.message);
+        // Scan already in progress, ignore
       } else {
-        console.error('Scan failed:', error);
+        console.error('Scan failed:', error); // eslint-disable-line no-console
       }
     } finally {
       this._isScanning = false;
-      this._isBackgroundScan = false; // Clear the flag
-
-      // Ensure scan results are displayed by triggering an update
-      this.requestUpdate();
-
-      // Reset scan progress to prevent unnecessary renders
-      this._pageTotal = 0;
-      this._mediaTotal = 0;
-      this._scanProgress = { pages: 0, media: 0 };
+      // Update topbar with final scan results
+      const topbar = this.shadowRoot.querySelector('nx-media-topbar');
+      if (topbar) {
+        topbar._isScanning = this._isScanning; // eslint-disable-line no-underscore-dangle
+        topbar._duration = this.duration; // eslint-disable-line no-underscore-dangle
+        topbar._hasChanges = this.hasChanges; // eslint-disable-line no-underscore-dangle
+        topbar.requestUpdate();
+      }
     }
   }
 
   updateScanProgress(type, totalScanned, processedCount) {
     if (type === 'page') {
-      this._pageTotal = processedCount;
-      this._scanProgress = { ...this._scanProgress, pages: totalScanned };
-      // Allow progress updates during background scans, but prevent final render
-      if (this._isScanning) {
-        this.requestUpdate();
-      }
+      this.pageTotal = processedCount;
+      this.scanProgress = { ...this.scanProgress, pages: totalScanned };
     }
     if (type === 'media') {
-      this._mediaTotal = processedCount;
-      this._scanProgress = { ...this._scanProgress, media: totalScanned };
-      // Allow progress updates during background scans, but prevent final render
-      if (this._isScanning) {
-        this.requestUpdate();
-      }
+      this.mediaTotal = processedCount;
+      this.scanProgress = { ...this.scanProgress, media: totalScanned };
     }
 
-    return new Promise((resolve) => {
-      setTimeout(resolve, 10);
-    });
-  }
-
-  async startPollingBackgroundScan(org, repo) {
-    try {
-      this._isScanning = true;
-      const result = await runScan(this.sitePath, this.updateScanProgress.bind(this), org, repo);
-
-      // Only reload data if the scan found actual changes
-      if (result.hasChanges) {
-        await this.loadMediaData(org, repo);
-      }
-    } catch (error) {
-      console.error('Background scan failed:', error);
-    } finally {
-      this._isScanning = false;
+    // Update topbar directly without triggering main component re-render
+    const topbar = this.shadowRoot.querySelector('nx-media-topbar');
+    if (topbar) {
+      topbar._scanProgress = this.scanProgress; // eslint-disable-line no-underscore-dangle
+      topbar._pageTotal = this.pageTotal; // eslint-disable-line no-underscore-dangle
+      topbar._mediaTotal = this.mediaTotal; // eslint-disable-line no-underscore-dangle
+      topbar._isScanning = this._isScanning; // eslint-disable-line no-underscore-dangle
+      topbar.requestUpdate();
     }
   }
 
@@ -207,7 +184,7 @@ class NxMediaLibrary extends LitElement {
         this.updateFilters();
       }
     } catch (error) {
-      console.error('Failed to load media data:', error);
+      console.error('Failed to load media data:', error); // eslint-disable-line no-console
     }
   }
 
@@ -217,17 +194,9 @@ class NxMediaLibrary extends LitElement {
     this._filters = getMediaCounts(aggregatedData);
   }
 
-  get org() {
-    if (!this.sitePath) return '';
-    const pathParts = this.sitePath.split('/').filter(Boolean);
-    return pathParts[0] || '';
-  }
-
-  get repo() {
-    if (!this.sitePath) return '';
-    const pathParts = this.sitePath.split('/').filter(Boolean);
-    return pathParts[1] || '';
-  }
+  // ============================================================================
+  // COMPUTED PROPERTIES (GETTERS)
+  // ============================================================================
 
   get selectedDocument() {
     if (this._folderFilterPaths && this._folderFilterPaths.length > 0) {
@@ -256,16 +225,19 @@ class NxMediaLibrary extends LitElement {
     return getDocumentMediaBreakdown(this._mediaData, this.selectedDocument);
   }
 
+  // ============================================================================
+  // RENDERING METHODS
+  // ============================================================================
+
   render() {
     return html`
       <div class="media-library">
         <nx-media-topbar
           .searchQuery=${this._searchQuery}
           .currentView=${this._currentView}
-          ._isScanning=${this._isScanning}
-          ._scanProgress=${this._scanProgress}
-          ._duration=${this._duration}
-          ._hasChanges=${this._hasChanges}
+          ._scanProgress=${this.scanProgress}
+          ._duration=${this.duration}
+          ._hasChanges=${this.hasChanges}
           .folderFilterPaths=${this._folderFilterPaths}
           @search=${this.handleSearch}
           @viewChange=${this.handleViewChange}
@@ -298,8 +270,8 @@ class NxMediaLibrary extends LitElement {
 
         <nx-media-info
           .media=${this._selectedMedia}
-          .org=${this.org}
-          .repo=${this.repo}
+          .org=${this.sitePath?.split('/').slice(1, 3)[0] || ''}
+          .repo=${this.sitePath?.split('/').slice(1, 3)[1] || ''}
           .allMediaData=${this._mediaData}
           .isOpen=${this._infoModalOpen}
           @close=${this.handleInfoModalClose}
@@ -329,7 +301,6 @@ class NxMediaLibrary extends LitElement {
         return html`
           <nx-media-list
             .mediaData=${this.filteredMediaData}
-            .isScanning=${this._isScanning}
             @mediaClick=${this.handleMediaClick}
             @mediaInfo=${this.handleMediaInfo}
             @mediaUsage=${this.handleMediaUsage}
@@ -340,7 +311,6 @@ class NxMediaLibrary extends LitElement {
         return html`
           <nx-media-grid
             .mediaData=${this.filteredMediaData}
-            .isScanning=${this._isScanning}
             @mediaClick=${this.handleMediaClick}
             @mediaInfo=${this.handleMediaInfo}
             @mediaUsage=${this.handleMediaUsage}
@@ -348,6 +318,10 @@ class NxMediaLibrary extends LitElement {
         `;
     }
   }
+
+  // ============================================================================
+  // EVENT HANDLERS - SEARCH & FILTERING
+  // ============================================================================
 
   handleSearch(e) {
     this._searchQuery = e.detail.query;
@@ -362,74 +336,14 @@ class NxMediaLibrary extends LitElement {
   }
 
   get filteredMediaData() {
-    if (!this._mediaData) return [];
-
-    // Create a cache key based on all filter parameters
-    const filterKey = JSON.stringify({
-      mediaDataLength: this._mediaData.length,
-      activeFilter: this._activeFilter,
-      folderFilterPaths: this._folderFilterPaths,
-      searchQuery: this._searchQuery,
-    });
-
-    // Return cached result if filters haven't changed
-    if (this._cachedData && this._cacheKey === filterKey) {
-      return this._cachedData;
+    if (!this._mediaData) {
+      return [];
     }
 
     let filtered = aggregateMediaData(this._mediaData);
 
-    switch (this._activeFilter) {
-      case 'images':
-        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !isSvgFile(item));
-        break;
-      case 'videos':
-        filtered = filtered.filter((item) => getMediaType(item) === 'video');
-        break;
-      case 'documents':
-        filtered = filtered.filter((item) => getMediaType(item) === 'document');
-        break;
-      case 'links':
-        filtered = filtered.filter((item) => getMediaType(item) === 'link');
-        break;
-      case 'icons':
-        filtered = filtered.filter((item) => isSvgFile(item));
-        break;
-      case 'used':
-        filtered = filtered.filter((item) => item.isUsed);
-        break;
-      case 'unused':
-        filtered = filtered.filter((item) => !item.isUsed);
-        break;
-      case 'missingAlt':
-        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !item.alt && item.type && item.type.startsWith('img >') && !isSvgFile(item));
-        break;
-      case 'documentTotal':
-        break;
-      case 'documentImages':
-        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !isSvgFile(item));
-        break;
-      case 'documentIcons':
-        filtered = filtered.filter((item) => isSvgFile(item));
-        break;
-      case 'documentVideos':
-        filtered = filtered.filter((item) => getMediaType(item) === 'video');
-        break;
-      case 'documentDocuments':
-        filtered = filtered.filter((item) => getMediaType(item) === 'document');
-        break;
-      case 'documentLinks':
-        filtered = filtered.filter((item) => getMediaType(item) === 'link');
-        break;
-      case 'documentMissingAlt':
-        filtered = filtered.filter((item) => getMediaType(item) === 'image' && !item.alt && item.type && item.type.startsWith('img >'));
-        break;
-      case 'all':
-      default:
-        // Exclude SVGs from All Media display to reduce clutter
-        filtered = filtered.filter((item) => !isSvgFile(item));
-        break;
-    }
+    // Apply filter using configuration
+    filtered = applyFilter(filtered, this._activeFilter);
 
     if (this._folderFilterPaths.length > 0) {
       const hasMatchingPath = (item) => this._folderFilterPaths.some((path) => item.doc === path);
@@ -449,11 +363,12 @@ class NxMediaLibrary extends LitElement {
       return nameA.localeCompare(nameB);
     });
 
-    this._cachedData = filtered;
-    this._cacheKey = filterKey;
-
     return filtered;
   }
+
+  // ============================================================================
+  // EVENT HANDLERS - MEDIA INTERACTIONS
+  // ============================================================================
 
   async handleMediaClick(e) {
     const { media } = e.detail;
@@ -463,7 +378,6 @@ class NxMediaLibrary extends LitElement {
       const result = await copyMediaToClipboard(media);
       this.setMessage({ ...result, open: true });
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
       this.setMessage({ heading: 'Error', message: 'Failed to copy to clipboard.', open: true });
     }
   }
@@ -496,6 +410,10 @@ class NxMediaLibrary extends LitElement {
       }
     }
   }
+
+  // ============================================================================
+  // EVENT HANDLERS - FOLDER & DOCUMENT MANAGEMENT
+  // ============================================================================
 
   handleOpenFolderDialog() {
     this._hierarchyDialogOpen = true;
@@ -537,9 +455,21 @@ class NxMediaLibrary extends LitElement {
     this._activeFilter = type;
   }
 
+  // ============================================================================
+  // EVENT HANDLERS - SCAN & STATUS MANAGEMENT
+  // ============================================================================
+
   handleClearScanStatus() {
-    this._duration = null;
-    this._hasChanges = null;
+    this.duration = null;
+    this.hasChanges = null;
+
+    // Also clear topbar properties
+    const topbar = this.shadowRoot.querySelector('nx-media-topbar');
+    if (topbar) {
+      topbar._duration = null; // eslint-disable-line no-underscore-dangle
+      topbar._hasChanges = null; // eslint-disable-line no-underscore-dangle
+      topbar.requestUpdate();
+    }
   }
 
   setMessage(message, duration = 3000) {
@@ -563,6 +493,10 @@ class NxMediaLibrary extends LitElement {
     }
   }
 }
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
 
 customElements.define(EL_NAME, NxMediaLibrary);
 

@@ -58,7 +58,7 @@ class NxMediaList extends LitElement {
   }
 
   firstUpdated() {
-    window.addEventListener('resize', () => this._updateVisibleRange());
+    window.addEventListener('resize', () => this.updateVisibleRange());
   }
 
   updated(changedProperties) {
@@ -66,7 +66,7 @@ class NxMediaList extends LitElement {
       this.updateComplete.then(() => {
         this._container = this.shadowRoot.querySelector('.list-content');
         if (this._container && !this._scrollListenerAttached) {
-          this._container.addEventListener('scroll', this._onScroll.bind(this));
+          this._container.addEventListener('scroll', this.onScroll.bind(this));
           this._scrollListenerAttached = true;
         }
       });
@@ -88,7 +88,7 @@ class NxMediaList extends LitElement {
     return false;
   }
 
-  _onScroll() {
+  onScroll() {
     if (!this._container || !this.mediaData) return;
 
     if (this._scrollTimeout) {
@@ -96,11 +96,11 @@ class NxMediaList extends LitElement {
     }
 
     this._scrollTimeout = setTimeout(() => {
-      this._updateVisibleRange();
+      this.updateVisibleRange();
     }, 16);
   }
 
-  _updateVisibleRange() {
+  updateVisibleRange() {
     if (!this._container || !this.mediaData) return;
 
     const { scrollTop } = this._container;
@@ -116,7 +116,7 @@ class NxMediaList extends LitElement {
     const newStart = bufferStartItem;
     const newEnd = bufferEndItem;
 
-    const needsUpdate = this._needsUpdate(newStart, newEnd);
+    const needsUpdate = this.needsUpdate(newStart, newEnd);
 
     if (needsUpdate) {
       const oldStart = this._visibleStart;
@@ -125,11 +125,11 @@ class NxMediaList extends LitElement {
       this._visibleStart = newStart;
       this._visibleEnd = newEnd;
 
-      this._updateItemsIncremental(oldStart, oldEnd, newStart, newEnd);
+      this.updateItemsIncremental(oldStart, oldEnd, newStart, newEnd);
     }
   }
 
-  _needsUpdate(newStart, newEnd) {
+  needsUpdate(newStart, newEnd) {
     for (let i = newStart; i < newEnd; i += 1) {
       if (!this._renderedItems.has(i)) {
         return true;
@@ -145,7 +145,7 @@ class NxMediaList extends LitElement {
     return false;
   }
 
-  _updateItemsIncremental(oldStart, oldEnd, newStart, newEnd) {
+  updateItemsIncremental(oldStart, oldEnd, newStart, newEnd) {
     const itemsToAdd = [];
 
     for (let i = newStart; i < newEnd; i += 1) {
@@ -161,11 +161,11 @@ class NxMediaList extends LitElement {
     }
 
     if (itemsToAdd.length > 0 || itemsToRemove.length > 0) {
-      this._performIncrementalDOMUpdate(itemsToAdd, itemsToRemove);
+      this.performIncrementalDOMUpdate(itemsToAdd, itemsToRemove);
     }
   }
 
-  _performIncrementalDOMUpdate(itemsToAdd, itemsToRemove) {
+  performIncrementalDOMUpdate(itemsToAdd, itemsToRemove) {
     const container = this.shadowRoot.querySelector('.list-grid');
     if (!container) return;
 
@@ -180,14 +180,14 @@ class NxMediaList extends LitElement {
       const media = this.mediaData[itemIndex];
       if (!media) return;
 
-      const itemElement = this._createItemElement(media, itemIndex);
+      const itemElement = this.createItemElement(media, itemIndex);
       container.appendChild(itemElement);
 
       this._renderedItems.add(itemIndex);
     });
   }
 
-  _createItemElement(media, itemIndex) {
+  createItemElement(media, itemIndex) {
     const top = itemIndex * this._itemHeight;
 
     const itemElement = createElement('div', {
@@ -200,7 +200,7 @@ class NxMediaList extends LitElement {
     const previewDiv = createElement('div', {
       className: 'item-preview clickable',
       title: 'Click to copy media URL',
-      innerHTML: this._renderMediaPreviewHTML(media),
+      innerHTML: this.renderMediaPreviewHTML(media),
       events: { click: (e) => this.handlePreviewClick(e, media) },
     });
 
@@ -247,7 +247,7 @@ class NxMediaList extends LitElement {
     return itemElement;
   }
 
-  _renderMediaPreviewHTML(media) {
+  renderMediaPreviewHTML(media) {
     const ext = media.mediaUrl.split('.').pop()?.toLowerCase();
 
     if (this.isImage(media.mediaUrl)) {

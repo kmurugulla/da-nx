@@ -481,7 +481,7 @@ async function checkMediaJsonModified(org, repo) {
 
     return { hasChanged, fileTimestamp: currentModified };
   } catch (error) {
-    console.warn('Failed to check media.json modification:', error);
+    console.warn('Failed to check media.json modification:', error); // eslint-disable-line no-console
     return { hasChanged: true, fileTimestamp: null };
   }
 }
@@ -966,7 +966,7 @@ export default async function runScan(path, updateTotal, org, repo) {
     const saveResults = await saveScanMetadata(org, repo, rootPages, folderFiles);
 
     if (saveResults.errors.length > 0) {
-      console.warn('Some scan metadata files failed to save:', saveResults.errors);
+      console.warn('Some scan metadata files failed to save:', saveResults.errors); // eslint-disable-line no-console
     }
   }
 
@@ -1130,4 +1130,5 @@ export function createElement(tag, attributes = {}, content = undefined) {
 export {
   getVideoThumbnail,
   isVideoUrl,
+  isSvgFile,
 };

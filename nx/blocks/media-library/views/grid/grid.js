@@ -14,7 +14,7 @@ class NxMediaGrid extends LitElement {
     _itemWidth: { state: true },
     _itemHeight: { state: true },
     _colCount: { state: true },
-    _pdfBlobUrls: { state: true },
+    _imageErrors: { state: true },
   };
 
   constructor() {
@@ -28,6 +28,8 @@ class NxMediaGrid extends LitElement {
     this._scrollTimeout = null;
     this._bufferSize = 3;
     this._renderedCards = new Set();
+    this._imageErrors = new Set();
+    this._previousMediaDataLength = 0;
   }
 
   connectedCallback() {
@@ -43,45 +45,79 @@ class NxMediaGrid extends LitElement {
   }
 
   firstUpdated() {
-    window.addEventListener('resize', () => this._updateColCount());
+    window.addEventListener('resize', () => this.updateColCount());
   }
 
   updated(changedProperties) {
     if (changedProperties.has('mediaData') && this.mediaData && this.mediaData.length > 0) {
       this.updateComplete.then(() => {
         this._container = this.shadowRoot.querySelector('.media-main');
+
         if (this._container && !this._scrollListenerAttached) {
-          this._container.addEventListener('scroll', () => this._onScroll());
+          this._container.addEventListener('scroll', () => this.onScroll());
           this._scrollListenerAttached = true;
-          this._updateColCount();
         }
+
+        // Reset scroll position when data changes (not initial load)
+        if (this._container && this._previousMediaDataLength > 0) {
+          this.updateColCount();
+          this._container.scrollTop = 0;
+        }
+
+        // Force container to recalculate its scroll height AFTER grid content is rendered
+        requestAnimationFrame(() => {
+          this.forceContainerHeightRecalculation();
+        });
+
+        // Render initial cards after data change
+        this.renderInitialCards();
+
+        // Let LitElement handle DOM updates automatically
+        this._previousMediaDataLength = this.mediaData.length;
       });
     }
   }
 
   shouldUpdate(changedProperties) {
     if (changedProperties.has('mediaData')) {
+      // Reset virtual scroll state when data changes
       this._visibleStart = 0;
       this._visibleEnd = Math.min(20, this.mediaData?.length || 0);
       this._renderedCards.clear();
+      this._imageErrors.clear();
+
+      // Clear all existing cards from DOM when data changes
+      this.clearAllCards();
+
+      // Note: DOM cleanup will happen in updated() after render
       return true;
     }
 
-    if (changedProperties.has('_visibleStart') || changedProperties.has('_visibleEnd')) {
-      return false;
-    }
-
-    return changedProperties.has('_colCount');
+    // Disable LitElement re-rendering for scroll changes - use manual DOM manipulation instead
+    // Only allow re-renders for mediaData changes and column count changes
+    return changedProperties.has('_colCount') || changedProperties.has('_imageErrors');
   }
 
-  _updateColCount() {
+  updateColCount() {
     if (!this._container) return;
     const width = this._container.clientWidth;
     if (width === 0) return;
     this._colCount = Math.max(1, Math.floor(width / (this._itemWidth + this._cardSpacing)));
   }
 
-  _onScroll() {
+  forceContainerHeightRecalculation() {
+    if (!this._container) return;
+    const gridElement = this.shadowRoot.querySelector('.media-grid');
+    if (gridElement) {
+      gridElement.offsetHeight; // eslint-disable-line no-unused-expressions
+      const originalOverflow = this._container.style.overflow;
+      this._container.style.overflow = 'hidden';
+      this._container.offsetHeight; // eslint-disable-line no-unused-expressions
+      this._container.style.overflow = originalOverflow;
+    }
+  }
+
+  onScroll() {
     if (!this._container || !this.mediaData) return;
 
     if (this._scrollTimeout) {
@@ -89,20 +125,17 @@ class NxMediaGrid extends LitElement {
     }
 
     this._scrollTimeout = setTimeout(() => {
-      this._updateVisibleRange();
+      this.updateVisibleRange();
     }, 16);
   }
 
-  _updateVisibleRange() {
+  updateVisibleRange() {
     if (!this._container || !this.mediaData) return;
 
     const { scrollTop } = this._container;
-    const containerHeight = this._container.clientHeight;
-    const scrollBottom = scrollTop + containerHeight;
-
     const rowHeight = this._itemHeight + this._cardSpacing;
     const startRow = Math.floor(scrollTop / rowHeight);
-    const endRow = Math.ceil(scrollBottom / rowHeight);
+    const endRow = Math.ceil((scrollTop + this._container.clientHeight) / rowHeight);
 
     const bufferStartRow = Math.max(0, startRow - this._bufferSize);
     const bufferEndRow = Math.min(
@@ -113,59 +146,79 @@ class NxMediaGrid extends LitElement {
     const newStart = bufferStartRow * this._colCount;
     const newEnd = Math.min(bufferEndRow * this._colCount, this.mediaData.length);
 
-    const needsUpdate = this._needsUpdate(newStart, newEnd);
-
-    if (needsUpdate) {
+    if (newStart !== this._visibleStart || newEnd !== this._visibleEnd) {
       const oldStart = this._visibleStart;
       const oldEnd = this._visibleEnd;
 
       this._visibleStart = newStart;
       this._visibleEnd = newEnd;
 
-      this._updateCardsIncremental(oldStart, oldEnd, newStart, newEnd);
+      this.updateCardsIncremental(oldStart, oldEnd, newStart, newEnd);
     }
   }
 
-  _needsUpdate(newStart, newEnd) {
-    for (let i = newStart; i < newEnd; i += 1) {
-      if (!this._renderedCards.has(i)) {
-        return true;
-      }
-    }
+  clearAllCards() {
+    const container = this.shadowRoot.querySelector('.media-grid');
+    if (!container) return;
 
-    for (let i = this._visibleStart; i < this._visibleEnd; i += 1) {
-      if (i < newStart || i >= newEnd) {
-        return true;
-      }
-    }
+    // Remove all existing cards
+    const existingCards = container.querySelectorAll('.media-card');
+    existingCards.forEach((card) => {
+      card.remove();
+    });
 
-    return false;
+    // Clear the rendered cards tracking
+    this._renderedCards.clear();
   }
 
-  _updateCardsIncremental(oldStart, oldEnd, newStart, newEnd) {
+  renderInitialCards() {
+    if (!this.mediaData || this.mediaData.length === 0) return;
+
+    const container = this.shadowRoot.querySelector('.media-grid');
+    if (!container) return;
+
+    // Render the initial visible range
+    const initialItems = this.mediaData.slice(this._visibleStart, this._visibleEnd);
+
+    initialItems.forEach((media, i) => {
+      const cardIndex = this._visibleStart + i;
+      const cardElement = this.createCardElement(media, cardIndex);
+      container.appendChild(cardElement);
+      this._renderedCards.add(cardIndex);
+    });
+  }
+
+  updateCardsIncremental(oldStart, oldEnd, newStart, newEnd) {
     const cardsToAdd = [];
+    const cardsToRemove = [];
 
+    // Find cards to add
     for (let i = newStart; i < newEnd; i += 1) {
       if (!this._renderedCards.has(i)) {
         cardsToAdd.push(i);
       }
     }
 
-    const cardsToRemove = [];
-    for (let i = oldStart; i < Math.min(oldEnd, newStart); i += 1) {
-      cardsToRemove.push(i);
-      this._renderedCards.delete(i);
+    // Find cards to remove
+    for (let i = oldStart; i < oldEnd; i += 1) {
+      if (i < newStart || i >= newEnd) {
+        cardsToRemove.push(i);
+        this._renderedCards.delete(i);
+      }
     }
 
     if (cardsToAdd.length > 0 || cardsToRemove.length > 0) {
-      this._performIncrementalDOMUpdate(cardsToAdd, cardsToRemove);
+      this.performIncrementalDOMUpdate(cardsToAdd, cardsToRemove);
     }
   }
 
-  _performIncrementalDOMUpdate(cardsToAdd, cardsToRemove) {
+  performIncrementalDOMUpdate(cardsToAdd, cardsToRemove) {
     const container = this.shadowRoot.querySelector('.media-grid');
-    if (!container) return;
+    if (!container) {
+      return;
+    }
 
+    // Remove cards that are no longer visible
     cardsToRemove.forEach((cardIndex) => {
       const cardElement = container.querySelector(`[data-index="${cardIndex}"]`);
       if (cardElement) {
@@ -173,18 +226,25 @@ class NxMediaGrid extends LitElement {
       }
     });
 
+    // Add new cards
     cardsToAdd.forEach((cardIndex) => {
       const media = this.mediaData[cardIndex];
-      if (!media) return;
+      if (!media) {
+        return;
+      }
 
-      const cardElement = this._createCardElement(media, cardIndex);
+      const cardElement = this.createCardElement(media, cardIndex);
       container.appendChild(cardElement);
-
       this._renderedCards.add(cardIndex);
     });
+
+    // Force container height recalculation after DOM changes
+    this.forceContainerHeightRecalculation();
   }
 
-  _createCardElement(media, cardIndex) {
+  createCardElement(media, cardIndex) {
+    // Calculate position based on the card's absolute position in the grid
+    // This ensures each card gets its correct position regardless of visible range
     const row = Math.floor(cardIndex / this._colCount);
     const col = cardIndex % this._colCount;
     const top = row * (this._itemHeight + this._cardSpacing);
@@ -198,93 +258,13 @@ class NxMediaGrid extends LitElement {
 
     cardElement.addEventListener('click', this.handleMediaClick.bind(this));
 
+    // Create preview div
     const previewDiv = document.createElement('div');
     previewDiv.className = 'media-preview';
+    previewDiv.innerHTML = this.getMediaPreviewHTML(media, cardIndex);
+    cardElement.appendChild(previewDiv);
 
-    const ext = this.getFileExtension(media.url);
-
-    if (this.isImage(media.url)) {
-      const img = document.createElement('img');
-      img.src = media.url.replace('format=jpeg', 'format=webply').replace('format=png', 'format=webply');
-      img.alt = media.alt || '';
-      img.loading = 'lazy';
-      img.addEventListener('error', this.handleImageError);
-      previewDiv.appendChild(img);
-    } else if (isVideoUrl(media.url)) {
-      const thumbnailUrl = getVideoThumbnail(media.url);
-      if (thumbnailUrl) {
-        const videoContainer = document.createElement('div');
-        videoContainer.className = 'video-preview-container';
-        videoContainer.innerHTML = `
-          <img src="${thumbnailUrl}" alt="Video thumbnail" class="video-thumbnail" loading="lazy">
-          <div class="video-overlay">
-            <svg class="play-icon" viewBox="0 0 20 20">
-              <use href="#S2_Icon_Play_20_N"></use>
-            </svg>
-          </div>
-        `;
-
-        const thumbnailImg = videoContainer.querySelector('.video-thumbnail');
-        thumbnailImg.addEventListener('error', this.handleThumbnailError);
-        previewDiv.appendChild(videoContainer);
-      } else {
-        // Fallback to icon-based preview
-        const videoContainer = document.createElement('div');
-        videoContainer.className = 'video-preview-container';
-        videoContainer.innerHTML = `
-          <div class="video-preview-background">
-            <svg class="video-icon" viewBox="0 0 20 20">
-              <use href="#S2_Icon_Play_20_N"></use>
-            </svg>
-            <div class="video-info">
-              <span class="video-name">${this.getFileName(media.url)}</span>
-              <span class="video-type">Video File</span>
-            </div>
-          </div>
-        `;
-        previewDiv.appendChild(videoContainer);
-      }
-    } else if (ext === 'mp4') {
-      const videoContainer = document.createElement('div');
-      videoContainer.className = 'video-preview-container';
-      videoContainer.innerHTML = `
-        <div class="video-preview-background">
-          <svg class="video-icon" viewBox="0 0 20 20">
-            <use href="#S2_Icon_Play_20_N"></use>
-          </svg>
-          <div class="video-info">
-            <span class="video-name">${this.getFileName(media.url)}</span>
-            <span class="video-type">Video File</span>
-          </div>
-        </div>
-      `;
-      previewDiv.appendChild(videoContainer);
-    } else if (ext === 'pdf') {
-      const pdfContainer = document.createElement('div');
-      pdfContainer.className = 'pdf-preview-container';
-      pdfContainer.innerHTML = `
-        <div class="pdf-preview-background">
-          <svg class="pdf-icon" viewBox="0 0 20 20">
-            <use href="#S2_Icon_FileConvert_20_N"></use>
-          </svg>
-          <div class="pdf-info">
-            <span class="pdf-name">${this.getFileName(media.url)}</span>
-            <span class="pdf-type">PDF Document</span>
-          </div>
-        </div>
-      `;
-      previewDiv.appendChild(pdfContainer);
-    } else {
-      const unknownPlaceholder = document.createElement('div');
-      unknownPlaceholder.className = 'unknown-placeholder';
-      unknownPlaceholder.innerHTML = `
-        <svg class="unknown-icon" viewBox="0 0 20 20">
-          <use href="#S2IconHome20N-icon"></use>
-        </svg>
-      `;
-      previewDiv.appendChild(unknownPlaceholder);
-    }
-
+    // Create info div
     const infoDiv = document.createElement('div');
     infoDiv.className = 'media-info';
     infoDiv.innerHTML = `
@@ -294,11 +274,13 @@ class NxMediaGrid extends LitElement {
         <span class="media-used clickable" title="View usage details">Usage (${media.usageCount || 0})</span>
         <div class="media-actions">
           <sl-button variant="primary" size="small" title="View details">INFO</sl-button>
-          ${!media.alt && this.isImage(media.url) ? '<span class="missing-alt-indicator clickable" title="View usage details">NO ALT</span>' : ''}
+          ${this.getMissingAltIndicatorHTML(media)}
         </div>
       </div>
     `;
+    cardElement.appendChild(infoDiv);
 
+    // Add event listeners
     const infoButton = infoDiv.querySelector('sl-button');
     if (infoButton) {
       infoButton.addEventListener('click', (e) => this.handleInfoClick(e, media));
@@ -314,10 +296,90 @@ class NxMediaGrid extends LitElement {
       noAltSpan.addEventListener('click', (e) => this.handleUsageClick(e, media));
     }
 
-    cardElement.appendChild(previewDiv);
-    cardElement.appendChild(infoDiv);
-
     return cardElement;
+  }
+
+  getMediaPreviewHTML(media, cardIndex) {
+    const ext = this.getFileExtension(media.url);
+
+    if (this.isImage(media.url)) {
+      const hasError = this._imageErrors.has(cardIndex.toString());
+      if (hasError) {
+        return `
+          <div class="error-placeholder">
+            <div class="error-content">
+              <span class="error-text">404</span>
+              <span class="error-label">Not Found</span>
+            </div>
+          </div>
+        `;
+      }
+      const optimizedUrl = media.url.replace('format=jpeg', 'format=webply').replace('format=png', 'format=webply');
+      return `<img src="${optimizedUrl}" alt="${media.alt || ''}" loading="lazy">`;
+    }
+
+    if (isVideoUrl(media.url)) {
+      const thumbnailUrl = getVideoThumbnail(media.url);
+      if (thumbnailUrl) {
+        return `
+          <div class="video-preview-container">
+            <img src="${thumbnailUrl}" alt="Video thumbnail" class="video-thumbnail" loading="lazy">
+            <div class="video-overlay">
+              <svg class="play-icon" viewBox="0 0 20 20">
+                <use href="#S2_Icon_Play_20_N"></use>
+              </svg>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    if (ext === 'mp4') {
+      return `
+        <div class="video-preview-container">
+          <div class="video-preview-background">
+            <svg class="video-icon" viewBox="0 0 20 20">
+              <use href="#S2_Icon_Play_20_N"></use>
+            </svg>
+            <div class="video-info">
+              <span class="video-name">${this.getFileName(media.url)}</span>
+              <span class="video-type">Video File</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (ext === 'pdf') {
+      return `
+        <div class="pdf-preview-container">
+          <div class="pdf-preview-background">
+            <svg class="pdf-icon" viewBox="0 0 20 20">
+              <use href="#S2_Icon_FileConvert_20_N"></use>
+            </svg>
+            <div class="pdf-info">
+              <span class="pdf-name">${this.getFileName(media.url)}</span>
+              <span class="pdf-type">PDF Document</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="unknown-placeholder">
+        <svg class="unknown-icon" viewBox="0 0 20 20">
+          <use href="#S2IconHome20N-icon"></use>
+        </svg>
+      </div>
+    `;
+  }
+
+  getMissingAltIndicatorHTML(media) {
+    if (!media.alt && this.isImage(media.url)) {
+      return '<span class="missing-alt-indicator clickable" title="View usage details">NO ALT</span>';
+    }
+    return '';
   }
 
   handleMediaClick(e) {
@@ -337,13 +399,9 @@ class NxMediaGrid extends LitElement {
   }
 
   render() {
-    if (!this.mediaData || this.mediaData.length === 0) {
-      return html`<div class="empty-state">No media files found</div>`;
-    }
-
     return html`
       <main class="media-main">
-                ${this.renderMainContent()}
+        ${this.renderMainContent()}
       </main>
     `;
   }
@@ -366,13 +424,15 @@ class NxMediaGrid extends LitElement {
       `;
     }
 
-    const visibleItems = this.mediaData.slice(this._visibleStart, this._visibleEnd);
     const totalRows = Math.ceil(this.mediaData.length / this._colCount);
     const spacerHeight = totalRows * (this._itemHeight + this._cardSpacing);
 
+    // Only render the initial visible range - let manual DOM manipulation handle the rest
+    const initialVisibleItems = this.mediaData.slice(this._visibleStart, this._visibleEnd);
+
     return html`
       <div class="media-grid" style="height:${spacerHeight}px;">
-        ${visibleItems.map((media, i) => {
+        ${initialVisibleItems.map((media, i) => {
     const idx = this._visibleStart + i;
     const row = Math.floor(idx / this._colCount);
     const col = idx % this._colCount;
@@ -421,6 +481,20 @@ class NxMediaGrid extends LitElement {
     const ext = this.getFileExtension(media.url);
 
     if (this.isImage(media.url)) {
+      const cardIndex = this._visibleStart + this.mediaData.indexOf(media);
+      const hasError = this._imageErrors.has(cardIndex.toString());
+
+      if (hasError) {
+        return html`
+          <div class="error-placeholder">
+            <div class="error-content">
+              <span class="error-text">404</span>
+              <span class="error-label">Not Found</span>
+            </div>
+          </div>
+        `;
+      }
+
       const optimizedUrl = media.url.replace('format=jpeg', 'format=webply').replace('format=png', 'format=webply');
       return html`
         <img src="${optimizedUrl}" alt="${media.alt || ''}" loading="lazy" @error=${this.handleImageError}>
@@ -516,59 +590,25 @@ class NxMediaGrid extends LitElement {
 
   handleImageError(e) {
     const img = e.target;
-    img.style.display = 'none';
-
     const card = img.closest('.media-card');
     if (card) {
-      const preview = card.querySelector('.media-preview');
-      if (preview) {
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'error-placeholder';
-        errorDiv.innerHTML = `
-          <div class="error-content">
-            <span class="error-text">404</span>
-            <span class="error-label">Not Found</span>
-          </div>
-        `;
-        preview.appendChild(errorDiv);
+      const cardIndex = card.dataset.index;
+      if (cardIndex !== undefined) {
+        this._imageErrors.add(cardIndex);
+        this.requestUpdate();
       }
-    }
-  }
-
-  handleVideoLoad(e) {
-    const video = e.target;
-    const placeholder = video.nextElementSibling;
-    if (placeholder && placeholder.classList.contains('video-placeholder')) {
-      placeholder.style.display = 'none';
-    }
-  }
-
-  handleVideoError(e) {
-    const video = e.target;
-    video.style.display = 'none';
-    const placeholder = video.nextElementSibling;
-    if (placeholder && placeholder.classList.contains('video-placeholder')) {
-      placeholder.style.display = 'flex';
     }
   }
 
   handleThumbnailError(e) {
     const img = e.target;
-    img.style.display = 'none';
-
-    const container = img.closest('.video-preview-container');
-    if (container) {
-      container.innerHTML = `
-        <div class="video-preview-background">
-          <svg class="video-icon" viewBox="0 0 20 20">
-            <use href="#S2_Icon_Play_20_N"></use>
-          </svg>
-          <div class="video-info">
-            <span class="video-name">${this.getFileName(img.alt || '')}</span>
-            <span class="video-type">Video File</span>
-          </div>
-        </div>
-      `;
+    const card = img.closest('.media-card');
+    if (card) {
+      const cardIndex = card.dataset.index;
+      if (cardIndex !== undefined) {
+        this._imageErrors.add(cardIndex);
+        this.requestUpdate();
+      }
     }
   }
 }
