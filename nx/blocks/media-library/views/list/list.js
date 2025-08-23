@@ -1,8 +1,19 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
-import { IMAGE_EXTENSIONS, getDisplayMediaType } from '../../utils/utils.js';
+import getSvg from '../../../../public/utils/svg.js';
+import { IMAGE_EXTENSIONS, getDisplayMediaType, createElement, getVideoThumbnail, isVideoUrl } from '../../utils/utils.js';
 
 const styles = await getStyle(import.meta.url);
+const nx = `${new URL(import.meta.url).origin}/nx`;
+const sl = await getStyle(`${nx}/public/sl/styles.css`);
+const slComponents = await getStyle(`${nx}/public/sl/components.css`);
+
+const ICONS = [
+  `${nx}/public/icons/S2_Icon_Video_20_N.svg`,
+  `${nx}/public/icons/S2_Icon_PDF_20_N.svg`,
+  `${nx}/public/icons/S2_Icon_AlertCircle_18_N.svg`,
+  `${nx}/public/icons/S2_Icon_CheckmarkCircle_18_N.svg`,
+];
 
 class NxMediaList extends LitElement {
   static properties = {
@@ -31,7 +42,8 @@ class NxMediaList extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this.shadowRoot.adoptedStyleSheets = [styles];
+    this.shadowRoot.adoptedStyleSheets = [sl, slComponents, styles];
+    getSvg({ parent: this.shadowRoot, paths: ICONS });
   }
 
   disconnectedCallback() {
@@ -178,67 +190,59 @@ class NxMediaList extends LitElement {
   _createItemElement(media, itemIndex) {
     const top = itemIndex * this._itemHeight;
 
-    const itemElement = document.createElement('div');
-    itemElement.className = 'media-item';
-    itemElement.dataset.path = media.mediaUrl;
-    itemElement.dataset.index = itemIndex;
-    itemElement.style.cssText = `top:${top}px; height:${this._itemHeight}px;`;
+    const itemElement = createElement('div', {
+      className: 'media-item',
+      dataset: { path: media.mediaUrl, index: itemIndex },
+      style: `top:${top}px; height:${this._itemHeight}px;`,
+      events: { click: this.handleMediaClick.bind(this) },
+    });
 
-    itemElement.addEventListener('click', this.handleMediaClick.bind(this));
+    const previewDiv = createElement('div', {
+      className: 'item-preview clickable',
+      title: 'Click to copy media URL',
+      innerHTML: this._renderMediaPreviewHTML(media),
+      events: { click: (e) => this.handlePreviewClick(e, media) },
+    });
 
-    const previewDiv = document.createElement('div');
-    previewDiv.className = 'item-preview clickable';
-    previewDiv.title = 'Click to copy media URL';
-    previewDiv.innerHTML = this._renderMediaPreviewHTML(media);
+    const nameDiv = createElement('div', {
+      className: 'item-name',
+      textContent: this.getMediaName(media),
+    });
 
-    const nameDiv = document.createElement('div');
-    nameDiv.className = 'item-name';
-    nameDiv.textContent = this.getMediaName(media);
+    const typeDiv = createElement('div', {
+      className: 'item-type',
+      textContent: getDisplayMediaType(media),
+    });
 
-    const typeDiv = document.createElement('div');
-    typeDiv.className = 'item-type';
-    typeDiv.textContent = getDisplayMediaType(media);
+    const usageSpan = createElement('span', {
+      className: 'media-used clickable',
+      title: 'View usage details',
+      textContent: `${media.usageCount || 0}`,
+      events: { click: (e) => this.handleUsageClick(e, media) },
+    });
 
-    const usageDiv = document.createElement('div');
-    usageDiv.className = 'item-usage';
-    const usageSpan = document.createElement('span');
-    usageSpan.className = 'usage-badge used clickable';
-    usageSpan.title = 'View usage details';
-    usageSpan.textContent = `Usage (${media.usageCount || 0})`;
-    usageDiv.appendChild(usageSpan);
+    const usageDiv = createElement('div', { className: 'item-usage' }, [usageSpan]);
 
-    const altDiv = document.createElement('div');
-    altDiv.className = 'item-alt';
-    if (!media.alt && media.type && media.type.startsWith('img >')) {
-      const noAltSpan = document.createElement('span');
-      noAltSpan.className = 'missing-alt-indicator clickable';
-      noAltSpan.title = 'View usage details';
-      noAltSpan.textContent = 'NO ALT';
-      altDiv.appendChild(noAltSpan);
-    } else {
-      const altPresentSpan = document.createElement('span');
-      altPresentSpan.className = 'alt-present';
-      altPresentSpan.textContent = '✓';
-      altDiv.appendChild(altPresentSpan);
-    }
+    const altSpan = createElement('span', {
+      className: !media.alt && media.type?.startsWith('img >') ? 'missing-alt-indicator clickable' : 'alt-present',
+      title: !media.alt && media.type?.startsWith('img >') ? 'View usage details' : '',
+      innerHTML: !media.alt && media.type?.startsWith('img >') ? '<svg class="alert-icon" viewBox="0 0 18 18"><use href="#S2_Icon_AlertCircle_18_N"></use></svg>' : '<svg class="checkmark-icon" viewBox="0 0 18 18"><use href="#S2_Icon_CheckmarkCircle_18_N"></use></svg>',
+      events: !media.alt && media.type?.startsWith('img >') ? { click: (e) => this.handleUsageClick(e, media) } : {},
+    });
 
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'item-actions';
-    const infoButton = document.createElement('sl-button');
-    infoButton.variant = 'primary';
-    infoButton.size = 'small';
-    infoButton.title = 'View details';
-    infoButton.textContent = 'INFO';
-    actionsDiv.appendChild(infoButton);
+    const altDiv = createElement('div', { className: 'item-alt' }, [altSpan]);
+
+    const infoButton = createElement('sl-button', {
+      variant: 'primary outline',
+      size: 'small',
+      title: 'View details',
+      textContent: 'INFO',
+      events: { click: (e) => this.handleInfoClick(e, media) },
+    });
+
+    const actionsDiv = createElement('div', { className: 'item-actions' }, [infoButton]);
 
     itemElement.append(previewDiv, nameDiv, typeDiv, usageDiv, altDiv, actionsDiv);
-
-    previewDiv.addEventListener('click', (e) => this.handlePreviewClick(e, media));
-    usageSpan.addEventListener('click', (e) => this.handleUsageClick(e, media));
-    if (altDiv.querySelector('.missing-alt-indicator')) {
-      altDiv.querySelector('.missing-alt-indicator').addEventListener('click', (e) => this.handleUsageClick(e, media));
-    }
-    infoButton.addEventListener('click', (e) => this.handleInfoClick(e, media));
 
     return itemElement;
   }
@@ -263,7 +267,7 @@ class NxMediaList extends LitElement {
         </video>
         <div class="video-placeholder">
           <svg class="play-icon">
-            <use href="#S2IconPlay_20_N"></use>
+            <use href="#S2_Icon_Play_20_N"></use>
           </svg>
         </div>
       `;
@@ -271,9 +275,9 @@ class NxMediaList extends LitElement {
 
     if (ext === 'pdf') {
       return `
-        <div class="document-placeholder">
-          <svg class="document-icon">
-            <use href="#S2IconFileConvert_20_N"></use>
+        <div class="pdf-preview-container">
+          <svg class="pdf-icon" viewBox="0 0 20 20">
+            <use href="#S2_Icon_PDF_20_N"></use>
           </svg>
         </div>
       `;
@@ -316,32 +320,30 @@ class NxMediaList extends LitElement {
     const img = e.target;
     img.style.display = 'none';
 
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'error-placeholder';
-    errorDiv.innerHTML = `
-      <div class="error-content">
-        <span class="error-text">404</span>
-        <span class="error-label">Not Found</span>
-      </div>
-    `;
+    const errorDiv = createElement('div', {
+      className: 'error-placeholder',
+      innerHTML: `
+        <div class="error-content">
+          <span class="error-text">404</span>
+          <span class="error-label">Not Found</span>
+        </div>
+      `,
+    });
 
     img.parentNode.appendChild(errorDiv);
   }
 
-  handleVideoLoad(e) {
-    const video = e.target;
-    const placeholder = video.nextElementSibling;
-    if (placeholder && placeholder.classList.contains('video-placeholder')) {
-      placeholder.style.display = 'none';
-    }
-  }
+  handleThumbnailError(e) {
+    const img = e.target;
+    img.style.display = 'none';
 
-  handleVideoError(e) {
-    const video = e.target;
-    video.style.display = 'none';
-    const placeholder = video.nextElementSibling;
-    if (placeholder && placeholder.classList.contains('video-placeholder')) {
-      placeholder.style.display = 'flex';
+    const container = img.closest('.video-preview-container');
+    if (container) {
+      container.innerHTML = `
+        <svg class="video-icon" viewBox="0 0 20 20">
+          <use href="#S2_Icon_Video_20_N"></use>
+        </svg>
+      `;
     }
   }
 
@@ -393,13 +395,13 @@ class NxMediaList extends LitElement {
                   <div class="item-name">${this.getMediaName(media)}</div>
                   <div class="item-type">${getDisplayMediaType(media)}</div>
                   <div class="item-usage">
-                    <span class="usage-badge used clickable" @click=${(e) => this.handleUsageClick(e, media)} title="View usage details">Usage (${media.usageCount || 0})</span>
+                    <span class="media-used clickable" @click=${(e) => this.handleUsageClick(e, media)} title="View usage details">${media.usageCount || 0}</span>
                   </div>
                   <div class="item-alt">
                     ${this.renderAltStatus(media)}
                   </div>
                   <div class="item-actions">
-                    <sl-button variant="primary" size="small" @click=${(e) => this.handleInfoClick(e, media)} title="View details">
+                    <sl-button variant="primary outline" size="small" @click=${(e) => this.handleInfoClick(e, media)} title="View details">
                       INFO
                     </sl-button>
                   </div>
@@ -415,12 +417,20 @@ class NxMediaList extends LitElement {
   renderAltStatus(media) {
     if (!media.alt && media.type && media.type.startsWith('img >')) {
       return html`
-        <span class="missing-alt-indicator clickable" @click=${(e) => this.handleUsageClick(e, media)} title="View usage details">
-          NO ALT
+        <span class="missing-alt-indicator clickable" @click=${(e) => this.handleUsageClick(e, media)} title="Missing alt text">
+          <svg class="alert-icon" viewBox="0 0 18 18">
+            <use href="#S2_Icon_AlertCircle_18_N"></use>
+          </svg>
         </span>
       `;
     }
-    return html`<span class="alt-present">✓</span>`;
+    return html`
+      <span class="alt-present">
+        <svg class="checkmark-icon" viewBox="0 0 18 18">
+          <use href="#S2_Icon_CheckmarkCircle_18_N"></use>
+        </svg>
+      </span>
+    `;
   }
 
   renderMediaPreview(media) {
@@ -433,19 +443,28 @@ class NxMediaList extends LitElement {
       `;
     }
 
+    // Check if it's a video URL from supported providers
+    if (isVideoUrl(media.mediaUrl)) {
+      const thumbnailUrl = getVideoThumbnail(media.mediaUrl);
+      if (thumbnailUrl) {
+        return html`
+          <div class="video-preview-container">
+            <img src="${thumbnailUrl}" alt="Video thumbnail" class="video-thumbnail" loading="lazy" @error=${(e) => this.handleThumbnailError(e)}>
+            <div class="video-overlay">
+              <svg class="play-icon" viewBox="0 0 20 20">
+                <use href="#S2_Icon_Play_20_N"></use>
+              </svg>
+            </div>
+          </div>
+        `;
+      }
+    }
+
     if (ext === 'mp4') {
       return html`
-        <video 
-          src="${media.mediaUrl}" 
-          preload="metadata"
-          muted
-          @loadedmetadata=${(e) => this.handleVideoLoad(e)}
-          @error=${(e) => this.handleVideoError(e)}
-        >
-        </video>
-        <div class="video-placeholder">
-          <svg class="play-icon">
-            <use href="#S2IconPlay_20_N"></use>
+        <div class="video-preview-container">
+          <svg class="video-icon" viewBox="0 0 20 20">
+            <use href="#S2_Icon_Video_20_N"></use>
           </svg>
         </div>
       `;
@@ -453,9 +472,9 @@ class NxMediaList extends LitElement {
 
     if (ext === 'pdf') {
       return html`
-        <div class="document-placeholder">
-          <svg class="document-icon">
-            <use href="#S2IconFileConvert_20_N"></use>
+        <div class="pdf-preview-container">
+          <svg class="pdf-icon" viewBox="0 0 20 20">
+            <use href="#S2_Icon_PDF_20_N"></use>
           </svg>
         </div>
       `;

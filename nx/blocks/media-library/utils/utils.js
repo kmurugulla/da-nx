@@ -100,6 +100,53 @@ function extractSurroundingContext(element, maxLength = 100) {
   return context.slice(0, 3).join(' ').substring(0, maxLength);
 }
 
+function getVideoThumbnail(videoUrl) {
+  if (!videoUrl) return null;
+
+  const youtubeMatch = videoUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/);
+  if (youtubeMatch) {
+    return `https://img.youtube.com/vi/${youtubeMatch[1]}/maxresdefault.jpg`;
+  }
+
+  const vimeoMatch = videoUrl.match(/vimeo\.com\/(\d+)/);
+  if (vimeoMatch) {
+    const videoId = vimeoMatch[1];
+    return `https://i.vimeocdn.com/video/${videoId}_640.jpg`;
+  }
+
+  const dailymotionMatch = videoUrl.match(/(?:dailymotion\.com\/video\/|dai\.ly\/)([^&\n?#]+)/);
+  if (dailymotionMatch) {
+    const videoId = dailymotionMatch[1];
+    return `https://www.dailymotion.com/thumbnail/video/${videoId}`;
+  }
+
+  const dynamicMediaMatch = videoUrl.match(/(scene7\.com\/is\/content\/[^?]+)/);
+  if (dynamicMediaMatch) {
+    return `${dynamicMediaMatch[1]}?fmt=jpeg&wid=300&hei=200`;
+  }
+
+  const marketingMatch = videoUrl.match(/(marketing\.adobe\.com\/is\/content\/[^?]+)/);
+  if (marketingMatch) {
+    return `${marketingMatch[1]}?fmt=jpeg&wid=300&hei=200`;
+  }
+
+  return null;
+}
+
+function isVideoUrl(url) {
+  if (!url) return false;
+
+  const supportedPatterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)/,
+    /vimeo\.com\/(\d+)/,
+    /(?:dailymotion\.com\/video\/|dai\.ly\/)/,
+    /scene7\.com\/is\/content\//,
+    /marketing\.adobe\.com\/is\/content\//,
+  ];
+
+  return supportedPatterns.some((pattern) => pattern.test(url));
+}
+
 export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'];
 export const VIDEO_EXTENSIONS = ['mp4', 'webm', 'mov', 'avi'];
 export const DOCUMENT_EXTENSIONS = ['pdf'];
@@ -1030,3 +1077,57 @@ export function aggregateMediaData(mediaData) {
 
   return Array.from(aggregatedMedia.values());
 }
+
+export function createElement(tag, attributes = {}, content = undefined) {
+  const element = document.createElement(tag);
+
+  if (attributes) {
+    Object.entries(attributes).forEach(([key, val]) => {
+      switch (key) {
+        case 'className':
+          element.className = val;
+          break;
+        case 'dataset':
+          Object.assign(element.dataset, val);
+          break;
+        case 'textContent':
+          element.textContent = val;
+          break;
+        case 'innerHTML':
+          element.innerHTML = val;
+          break;
+        case 'style':
+          if (typeof val === 'object') {
+            Object.assign(element.style, val);
+          } else {
+            element.style.cssText = val;
+          }
+          break;
+        case 'events':
+          Object.entries(val).forEach(([event, handler]) => {
+            element.addEventListener(event, handler);
+          });
+          break;
+        default:
+          element.setAttribute(key, val);
+      }
+    });
+  }
+
+  if (content) {
+    if (Array.isArray(content)) {
+      element.append(...content);
+    } else if (content instanceof HTMLElement || content instanceof SVGElement) {
+      element.append(content);
+    } else {
+      element.insertAdjacentHTML('beforeend', content);
+    }
+  }
+
+  return element;
+}
+
+export {
+  getVideoThumbnail,
+  isVideoUrl,
+};

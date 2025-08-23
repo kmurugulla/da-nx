@@ -1,5 +1,6 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
+import getSvg from '../../../../utils/svg.js';
 import {
   IMAGE_EXTENSIONS,
   VIDEO_EXTENSIONS,
@@ -17,6 +18,11 @@ import { daFetch } from '../../../../utils/daFetch.js';
 import { DA_ORIGIN } from '../../../../public/utils/constants.js';
 
 const styles = await getStyle(import.meta.url);
+const nx = `${new URL(import.meta.url).origin}/nx`;
+
+const ICONS = [
+  `${nx}/public/icons/S2_Icon_PDF_20_N.svg`,
+];
 
 class NxMediaInfo extends LitElement {
   static properties = {
@@ -60,6 +66,7 @@ class NxMediaInfo extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.shadowRoot.adoptedStyleSheets = [styles];
+    getSvg({ parent: this.shadowRoot, paths: ICONS });
   }
 
   disconnectedCallback() {
@@ -437,7 +444,7 @@ class NxMediaInfo extends LitElement {
           </iframe>
           <div class="document-placeholder">
             <svg class="document-icon" viewBox="0 0 20 20">
-              <use href="#S2_Icon_FileConvert_20_N"></use>
+              <use href="#S2_Icon_PDF_20_N"></use>
             </svg>
           </div>
         `;
@@ -448,7 +455,7 @@ class NxMediaInfo extends LitElement {
         <div class="pdf-preview-container">
           <div class="document-placeholder">
             <svg class="document-icon" viewBox="0 0 20 20">
-              <use href="#S2_Icon_FileConvert_20_N"></use>
+              <use href="#S2_Icon_PDF_20_N"></use>
             </svg>
             <div class="pdf-info">
               <span class="pdf-name">${this.getFileName(this.media.url)}</span>
@@ -462,7 +469,7 @@ class NxMediaInfo extends LitElement {
     return html`
       <div class="preview-placeholder">
         <svg class="document-icon">
-          <use href="#S2IconFileConvert_20_N"></use>
+          <use href="#S2_Icon_PDF_20_N"></use>
         </svg>
       </div>
     `;

@@ -1,6 +1,6 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
-import { IMAGE_EXTENSIONS, getDisplayMediaType } from '../../utils/utils.js';
+import { IMAGE_EXTENSIONS, getDisplayMediaType, getVideoThumbnail, isVideoUrl } from '../../utils/utils.js';
 
 const styles = await getStyle(import.meta.url);
 
@@ -210,23 +210,55 @@ class NxMediaGrid extends LitElement {
       img.loading = 'lazy';
       img.addEventListener('error', this.handleImageError);
       previewDiv.appendChild(img);
-    } else if (ext === 'mp4') {
-      const video = document.createElement('video');
-      video.src = media.url;
-      video.preload = 'metadata';
-      video.muted = true;
-      video.addEventListener('loadedmetadata', this.handleVideoLoad);
-      video.addEventListener('error', this.handleVideoError);
-      previewDiv.appendChild(video);
+    } else if (isVideoUrl(media.url)) {
+      const thumbnailUrl = getVideoThumbnail(media.url);
+      if (thumbnailUrl) {
+        const videoContainer = document.createElement('div');
+        videoContainer.className = 'video-preview-container';
+        videoContainer.innerHTML = `
+          <img src="${thumbnailUrl}" alt="Video thumbnail" class="video-thumbnail" loading="lazy">
+          <div class="video-overlay">
+            <svg class="play-icon" viewBox="0 0 20 20">
+              <use href="#S2_Icon_Play_20_N"></use>
+            </svg>
+          </div>
+        `;
 
-      const placeholder = document.createElement('div');
-      placeholder.className = 'video-placeholder';
-      placeholder.innerHTML = `
-        <svg class="play-icon" viewBox="0 0 20 20">
-          <use href="#S2_Icon_Play_20_N"></use>
-        </svg>
+        const thumbnailImg = videoContainer.querySelector('.video-thumbnail');
+        thumbnailImg.addEventListener('error', this.handleThumbnailError);
+        previewDiv.appendChild(videoContainer);
+      } else {
+        // Fallback to icon-based preview
+        const videoContainer = document.createElement('div');
+        videoContainer.className = 'video-preview-container';
+        videoContainer.innerHTML = `
+          <div class="video-preview-background">
+            <svg class="video-icon" viewBox="0 0 20 20">
+              <use href="#S2_Icon_Play_20_N"></use>
+            </svg>
+            <div class="video-info">
+              <span class="video-name">${this.getFileName(media.url)}</span>
+              <span class="video-type">Video File</span>
+            </div>
+          </div>
+        `;
+        previewDiv.appendChild(videoContainer);
+      }
+    } else if (ext === 'mp4') {
+      const videoContainer = document.createElement('div');
+      videoContainer.className = 'video-preview-container';
+      videoContainer.innerHTML = `
+        <div class="video-preview-background">
+          <svg class="video-icon" viewBox="0 0 20 20">
+            <use href="#S2_Icon_Play_20_N"></use>
+          </svg>
+          <div class="video-info">
+            <span class="video-name">${this.getFileName(media.url)}</span>
+            <span class="video-type">Video File</span>
+          </div>
+        </div>
       `;
-      previewDiv.appendChild(placeholder);
+      previewDiv.appendChild(videoContainer);
     } else if (ext === 'pdf') {
       const pdfContainer = document.createElement('div');
       pdfContainer.className = 'pdf-preview-container';
@@ -395,20 +427,35 @@ class NxMediaGrid extends LitElement {
       `;
     }
 
+    // Check if it's a video URL from supported providers
+    if (isVideoUrl(media.url)) {
+      const thumbnailUrl = getVideoThumbnail(media.url);
+      if (thumbnailUrl) {
+        return html`
+          <div class="video-preview-container">
+            <img src="${thumbnailUrl}" alt="Video thumbnail" class="video-thumbnail" loading="lazy" @error=${this.handleThumbnailError}>
+            <div class="video-overlay">
+              <svg class="play-icon" viewBox="0 0 20 20">
+                <use href="#S2_Icon_Play_20_N"></use>
+              </svg>
+            </div>
+          </div>
+        `;
+      }
+    }
+
     if (ext === 'mp4') {
       return html`
-        <video 
-          src="${media.url}" 
-          preload="metadata"
-          muted
-          @loadedmetadata=${this.handleVideoLoad}
-          @error=${this.handleVideoError}
-        >
-        </video>
-        <div class="video-placeholder">
-          <svg class="play-icon" viewBox="0 0 20 20">
-            <use href="#S2_Icon_Play_20_N"></use>
-          </svg>
+        <div class="video-preview-container">
+          <div class="video-preview-background">
+            <svg class="video-icon" viewBox="0 0 20 20">
+              <use href="#S2_Icon_Play_20_N"></use>
+            </svg>
+            <div class="video-info">
+              <span class="video-name">${this.getFileName(media.url)}</span>
+              <span class="video-type">Video File</span>
+            </div>
+          </div>
         </div>
       `;
     }
@@ -502,6 +549,26 @@ class NxMediaGrid extends LitElement {
     const placeholder = video.nextElementSibling;
     if (placeholder && placeholder.classList.contains('video-placeholder')) {
       placeholder.style.display = 'flex';
+    }
+  }
+
+  handleThumbnailError(e) {
+    const img = e.target;
+    img.style.display = 'none';
+
+    const container = img.closest('.video-preview-container');
+    if (container) {
+      container.innerHTML = `
+        <div class="video-preview-background">
+          <svg class="video-icon" viewBox="0 0 20 20">
+            <use href="#S2_Icon_Play_20_N"></use>
+          </svg>
+          <div class="video-info">
+            <span class="video-name">${this.getFileName(img.alt || '')}</span>
+            <span class="video-type">Video File</span>
+          </div>
+        </div>
+      `;
     }
   }
 }
