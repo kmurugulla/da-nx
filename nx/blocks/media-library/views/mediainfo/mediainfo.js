@@ -4,8 +4,6 @@ import getSvg from '../../../../utils/svg.js';
 import {
   IMAGE_EXTENSIONS,
   VIDEO_EXTENSIONS,
-} from '../../utils/types.js';
-import {
   getDisplayMediaType,
 } from '../../utils/types.js';
 import {
@@ -16,9 +14,7 @@ import {
   getViewUrl,
   updateDocumentAltText,
 } from '../../utils/utils.js';
-import {
-  EXIF_JS_URL,
-} from '../../utils/video.js';
+import { EXIF_JS_URL } from '../../utils/video.js';
 import loadScript from '../../../../utils/script.js';
 import { daFetch } from '../../../../utils/daFetch.js';
 import { DA_ORIGIN } from '../../../../public/utils/constants.js';
@@ -394,6 +390,23 @@ class NxMediaInfo extends LitElement {
     return getDisplayMediaType(this.media);
   }
 
+  formatDateTime(isoString) {
+    if (!isoString) return 'Unknown';
+
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch (error) {
+      return 'Invalid Date';
+    }
+  }
+
   renderUsageGroup(docPath, usages) {
     const isPdf = this.isPdf(this.media.url);
 
@@ -539,6 +552,26 @@ class NxMediaInfo extends LitElement {
           ${this.renderActionsCell(usage)}
         </td>
       </tr>
+      <tr class="usage-date-row">
+        <td colspan="${isPdf ? 3 : 4}" class="date-details-cell">
+          <div class="date-details">
+            <span class="date-item">
+              <span class="date-label">First:</span> 
+              <span class="date-value">${this.formatDateTime(usage.firstUsedAt)}</span>
+            </span>
+            <span class="date-separator">|</span>
+            <span class="date-item">
+              <span class="date-label">Last:</span> 
+              <span class="date-value">${this.formatDateTime(usage.lastUsedAt)}</span>
+            </span>
+            <span class="date-separator">|</span>
+            <span class="date-item">
+              <span class="date-label">Modified:</span> 
+              <span class="date-value">${this.formatDateTime(usage.lastUsageModifiedAt)}</span>
+            </span>
+          </div>
+        </td>
+      </tr>
     `;
   }
 
@@ -669,7 +702,7 @@ class NxMediaInfo extends LitElement {
       const groupedUsages = groupUsagesByPath(this._usageData);
       return html`
         <div class="usage-list">
-          ${Object.entries(groupedUsages).map(([docPath, usages]) => this.renderUsageGroup(docPath, usages))}
+          ${groupedUsages.map((group) => this.renderUsageGroup(group.path, group.usages))}
         </div>
       `;
     }

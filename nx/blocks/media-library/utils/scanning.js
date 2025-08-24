@@ -2,10 +2,11 @@
 
 import { daFetch } from '../../../utils/daFetch.js';
 import { DA_ORIGIN } from '../../../public/utils/constants.js';
-import { getScanLockPath, saveMediaJson, saveScanMetadata, loadMediaJson, loadScanMetadata } from './storage.js';
+import { getScanLockPath, saveMediaJson, loadMediaJson } from './storage.js';
 import { crawl } from '../../../public/utils/tree.js';
-import { parseHtmlMedia, extractRelativePath, splitPathParts } from './parsing.js';
+import { parseHtmlMedia } from './parsing.js';
 import { isMediaFile, extractFileExtension, detectMediaTypeFromExtension } from './types.js';
+import { createHash, groupUsagesByPath } from './utils.js';
 
 let lastMediaJsonModified = null;
 
@@ -100,9 +101,6 @@ export default async function runScan(path, updateTotal, org, repo) {
   let totalMediaScanned = 0;
   const allMediaUsage = [];
   const unusedMedia = [];
-  const rootPages = [];
-  const folderFiles = {};
-  const rootFolders = [];
 
   const existingLock = await checkScanLock(org, repo);
   if (existingLock.exists && existingLock.locked) {
@@ -119,77 +117,86 @@ export default async function runScan(path, updateTotal, org, repo) {
   await createScanLock(org, repo);
 
   const existingMediaData = await loadMediaJson(org, repo) || [];
-  const previousMetadata = await loadScanMetadata(org, repo);
 
   const existingMediaMap = new Map();
   existingMediaData.forEach((item) => {
     existingMediaMap.set(item.mediaUrl, item);
   });
 
-  const previousTimestamps = new Map();
-  if (previousMetadata.root) {
-    previousMetadata.root.forEach((file) => {
-      previousTimestamps.set(file.path, file.lastModified);
-    });
-  }
-  Object.values(previousMetadata.folders || {}).forEach((folderFileList) => {
-    folderFileList.forEach((file) => {
-      previousTimestamps.set(file.path, file.lastModified);
-    });
+  // Build map of document timestamps from existing media data
+  const previousDocTimestamps = new Map();
+  const groupedUsages = groupUsagesByPath(existingMediaData);
+
+  groupedUsages.forEach((group) => {
+    // Find the most recent lastUsedAt timestamp for this document
+    const latestTimestamp = group.usages.reduce((latest, usage) => {
+      if (usage.lastUsedAt) {
+        const timestamp = new Date(usage.lastUsedAt).getTime();
+        return Math.max(latest, timestamp);
+      }
+      return latest;
+    }, 0);
+
+    if (latestTimestamp > 0) {
+      previousDocTimestamps.set(group.path, latestTimestamp);
+    }
   });
 
   const mediaInUse = new Set();
 
-  const callback = async (item) => {
-    const previousLastModified = previousTimestamps.get(item.path);
-    const isModified = !previousLastModified || previousLastModified !== item.lastModified;
+  function processMediaUsage(newUsage, existingData, docLastModified) {
+    const existingEntry = existingData.find(
+      (entry) => entry.doc === newUsage.doc && entry.url === newUsage.url,
+    );
 
+    if (!existingEntry) {
+      // New usage - timestamps already set in createMediaUsage
+      return;
+    }
+
+    // Existing usage - check if changed using hash
+    if (existingEntry.hash === newUsage.hash) {
+      // No change - just update lastUsedAt if document changed
+      newUsage.firstUsedAt = existingEntry.firstUsedAt;
+      newUsage.lastUsedAt = docLastModified || new Date().toISOString();
+    } else {
+      // Usage changed - update timestamps
+      newUsage.firstUsedAt = existingEntry.firstUsedAt;
+      newUsage.lastUsedAt = docLastModified || new Date().toISOString();
+    }
+  }
+
+  const callback = async (item) => {
     if (item.path.endsWith('.html')) {
       totalPagesScanned += 1;
       updateTotal('page', totalPagesScanned, pageTotal);
 
-      if (isModified) {
+      // Check if document has been modified since last scan
+      const docPreviousTimestamp = previousDocTimestamps.get(item.path);
+      const isDocModified = !docPreviousTimestamp
+        || item.lastModified > docPreviousTimestamp;
+
+      if (isDocModified) {
+        // Only scan modified HTML files
         const resp = await daFetch(`${DA_ORIGIN}/source${item.path}`);
         if (resp.ok) {
           pageTotal += 1;
           updateTotal('page', totalPagesScanned, pageTotal);
 
           const text = await resp.text();
-          const mediaUsage = await parseHtmlMedia(text, item.path, org, repo);
+          const docLastModified = new Date(item.lastModified).toISOString();
+          const mediaUsage = await parseHtmlMedia(text, item.path, org, repo, docLastModified);
 
+          // Process each usage with hash comparison
           mediaUsage.forEach((usage) => {
+            processMediaUsage(usage, existingMediaData, docLastModified);
             mediaInUse.add(usage.url);
           });
 
           allMediaUsage.push(...mediaUsage);
-
           mediaTotal += mediaUsage.length;
           updateTotal('media', totalMediaScanned, mediaTotal);
         }
-      } else {
-        const relativePath = extractRelativePath(item.path);
-        const existingEntries = existingMediaData.filter((entry) => entry.doc === relativePath);
-        existingEntries.forEach((entry) => {
-          mediaInUse.add(entry.url);
-        });
-      }
-
-      const { relativePathParts } = splitPathParts(item.path);
-
-      const pageInfo = {
-        path: item.path,
-        lastModified: item.lastModified,
-      };
-
-      if (relativePathParts.length === 1) {
-        rootPages.push(pageInfo);
-      } else if (relativePathParts.length > 1) {
-        const folderName = relativePathParts[0];
-        if (!rootFolders.includes(folderName)) {
-          rootFolders.push(folderName);
-          folderFiles[folderName] = [];
-        }
-        folderFiles[folderName].push(pageInfo);
       }
     }
 
@@ -197,45 +204,26 @@ export default async function runScan(path, updateTotal, org, repo) {
       totalMediaScanned += 1;
       updateTotal('media', totalMediaScanned, mediaTotal);
 
-      const mediaPreviousLastModified = previousTimestamps.get(item.path);
-      const isMediaModified = !mediaPreviousLastModified
-        || mediaPreviousLastModified !== item.lastModified;
+      // Always process media files since we don't track previous timestamps
+      const mediaUrl = `${CONTENT_ORIGIN}${item.path}`;
+      const fileExt = extractFileExtension(item.ext);
+      const mediaType = detectMediaTypeFromExtension(fileExt);
+      const type = `${mediaType} > ${fileExt}`;
 
-      if (isMediaModified) {
-        const mediaUrl = `${CONTENT_ORIGIN}${item.path}`;
-        const fileExt = extractFileExtension(item.ext);
-        const mediaType = detectMediaTypeFromExtension(fileExt);
-        const type = `${mediaType} > ${fileExt}`;
-
-        unusedMedia.push({
-          url: mediaUrl,
-          name: item.name,
-          doc: '',
-          alt: '',
-          type,
-          ctx: '',
-        });
-        mediaTotal += 1;
-        updateTotal('media', totalMediaScanned, mediaTotal);
-      }
-
-      const { relativePathParts } = splitPathParts(item.path);
-
-      const mediaInfo = {
-        path: item.path,
-        lastModified: item.lastModified,
-      };
-
-      if (relativePathParts.length === 1) {
-        rootPages.push(mediaInfo);
-      } else if (relativePathParts.length > 1) {
-        const folderName = relativePathParts[0];
-        if (!rootFolders.includes(folderName)) {
-          rootFolders.push(folderName);
-          folderFiles[folderName] = [];
-        }
-        folderFiles[folderName].push(mediaInfo);
-      }
+      unusedMedia.push({
+        url: mediaUrl,
+        name: item.name,
+        doc: '',
+        alt: '',
+        type,
+        ctx: '',
+        // NEW FIELDS
+        hash: createHash(mediaUrl),
+        firstUsedAt: new Date(item.lastModified).toISOString(),
+        lastUsedAt: new Date(item.lastModified).toISOString(),
+      });
+      mediaTotal += 1;
+      updateTotal('media', totalMediaScanned, mediaTotal);
     }
   };
 
@@ -243,25 +231,38 @@ export default async function runScan(path, updateTotal, org, repo) {
   await results;
 
   const allMediaEntries = [];
+  const processedUrls = new Set();
 
+  // First, add all existing entries that are still valid
   existingMediaData.forEach((item) => {
     if (mediaInUse.has(item.url) || !item.doc) {
       allMediaEntries.push(item);
+      processedUrls.add(item.url);
     }
   });
 
+  // Then, replace/add new usage entries
   allMediaUsage.forEach((usage) => {
+    // Remove existing entry if it exists
+    const existingIndex = allMediaEntries.findIndex((entry) => entry.url === usage.url);
+    if (existingIndex !== -1) {
+      allMediaEntries.splice(existingIndex, 1);
+    }
     allMediaEntries.push(usage);
+    processedUrls.add(usage.url);
   });
 
+  // Finally, add unused media that aren't already processed
   unusedMedia.forEach((item) => {
-    allMediaEntries.push({
-      ...item,
-      doc: item.doc || '',
-      alt: item.alt || '',
-      type: item.type || '',
-      ctx: item.ctx || '',
-    });
+    if (!processedUrls.has(item.url)) {
+      allMediaEntries.push({
+        ...item,
+        doc: item.doc || '',
+        alt: item.alt || '',
+        type: item.type || '',
+        ctx: item.ctx || '',
+      });
+    }
   });
 
   const mediaDataWithCount = allMediaEntries
@@ -271,12 +272,6 @@ export default async function runScan(path, updateTotal, org, repo) {
 
   if (hasActualChanges) {
     await saveMediaJson(mediaDataWithCount, org, repo);
-    const saveResults = await saveScanMetadata(org, repo, rootPages, folderFiles);
-
-    if (saveResults.errors.length > 0) {
-      // eslint-disable-next-line no-console
-      console.warn('Some scan metadata files failed to save:', saveResults.errors);
-    }
   }
 
   await removeScanLock(org, repo);

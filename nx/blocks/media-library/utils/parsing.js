@@ -1,6 +1,7 @@
 // nx/blocks/media-library/utils/parsing.js
 
 import { isMediaFile, extractFileExtension } from './types.js';
+import { createHash } from './utils.js';
 
 const DA_CONTENT_ENVS = {
   local: 'http://localhost:8788',
@@ -90,18 +91,34 @@ export function extractSurroundingContext(element, maxLength = 100) {
   return context.slice(0, 3).join(' ').substring(0, maxLength);
 }
 
-export function createMediaUsage(resolvedUrl, src, docPath, type, element, alt = null) {
+export function createMediaUsage(
+  resolvedUrl,
+  src,
+  docPath,
+  type,
+  element,
+  alt = null,
+  docLastModified = null,
+) {
+  const timestamp = docLastModified || new Date().toISOString();
+  const docPathRelative = extractRelativePath(docPath);
+  const usageHash = createHash(resolvedUrl + docPathRelative + (alt || ''));
+
   return {
     url: resolvedUrl,
-    name: src.split('/').pop().split('.')[0],
-    doc: extractRelativePath(docPath),
+    name: src.split('/').pop(), // Use full filename including extension
+    doc: docPathRelative,
     alt,
     type,
     ctx: extractSurroundingContext(element),
+    // NEW FIELDS
+    hash: usageHash,
+    firstUsedAt: timestamp,
+    lastUsedAt: timestamp,
   };
 }
 
-export async function parseHtmlMedia(htmlContent, docPath, org, repo) {
+export async function parseHtmlMedia(htmlContent, docPath, org, repo, docLastModified = null) {
   const dom = new DOMParser().parseFromString(htmlContent, 'text/html');
   const mediaUsage = [];
 
@@ -109,7 +126,7 @@ export async function parseHtmlMedia(htmlContent, docPath, org, repo) {
     if (img.src && isMediaFile(extractFileExtension(img.src))) {
       const resolvedUrl = resolveMediaUrl(img.src, docPath, org, repo);
       const fileExt = extractFileExtension(img.src);
-      mediaUsage.push(createMediaUsage(resolvedUrl, img.src, docPath, `img > ${fileExt}`, img, img.alt || null));
+      mediaUsage.push(createMediaUsage(resolvedUrl, img.src, docPath, `img > ${fileExt}`, img, img.alt || null, docLastModified));
     }
   });
 
@@ -117,14 +134,14 @@ export async function parseHtmlMedia(htmlContent, docPath, org, repo) {
     if (video.src && isMediaFile(extractFileExtension(video.src))) {
       const resolvedUrl = resolveMediaUrl(video.src, docPath, org, repo);
       const fileExt = extractFileExtension(video.src);
-      mediaUsage.push(createMediaUsage(resolvedUrl, video.src, docPath, `video > ${fileExt}`, video, null));
+      mediaUsage.push(createMediaUsage(resolvedUrl, video.src, docPath, `video > ${fileExt}`, video, null, docLastModified));
     }
 
     video.querySelectorAll('source').forEach((source) => {
       if (source.src && isMediaFile(extractFileExtension(source.src))) {
         const resolvedUrl = resolveMediaUrl(source.src, docPath, org, repo);
         const fileExt = extractFileExtension(source.src);
-        mediaUsage.push(createMediaUsage(resolvedUrl, source.src, docPath, `video-source > ${fileExt}`, source, null));
+        mediaUsage.push(createMediaUsage(resolvedUrl, source.src, docPath, `video-source > ${fileExt}`, source, null, docLastModified));
       }
     });
   });
@@ -134,7 +151,7 @@ export async function parseHtmlMedia(htmlContent, docPath, org, repo) {
     if (href && isMediaFile(extractFileExtension(href))) {
       const resolvedUrl = resolveMediaUrl(href, docPath, org, repo);
       const fileExt = extractFileExtension(href);
-      mediaUsage.push(createMediaUsage(resolvedUrl, href, docPath, `link > ${fileExt}`, link, null));
+      mediaUsage.push(createMediaUsage(resolvedUrl, href, docPath, `link > ${fileExt}`, link, null, docLastModified));
     }
   });
 

@@ -5,6 +5,21 @@ import { DA_ORIGIN } from '../../../public/utils/constants.js';
 
 import { getMediaType } from './types.js';
 
+export function createHash(str) {
+  // Use a more robust hash algorithm
+  let hash = 0;
+  if (str.length === 0) return hash.toString(36).padStart(10, '0');
+
+  for (let i = 0; i < str.length; i += 1) {
+    const char = str.charCodeAt(i);
+    hash = ((hash * 33) + char) % 2147483647;
+  }
+
+  // Convert to base36 and ensure minimum length of 10 characters
+  const base36 = Math.abs(hash).toString(36);
+  return base36.padStart(10, '0');
+}
+
 export function formatFileSize(bytes) {
   if (bytes === 0) return '0 Bytes';
 
@@ -88,11 +103,15 @@ export function groupUsagesByPath(usages) {
 }
 
 export function getEditUrl(org, repo, docPath) {
-  return `https://da.page/${org}/${repo}${docPath}`;
+  // Remove .html extension if present
+  const cleanPath = docPath.replace(/\.html$/, '');
+  return `https://da.live/edit#/${org}/${repo}${cleanPath}`;
 }
 
 export function getViewUrl(org, repo, docPath) {
-  return `https://main--${repo}--${org}.aem.page${docPath}`;
+  // Remove .html extension if present
+  const cleanPath = docPath.replace(/\.html$/, '');
+  return `https://main--${repo}--${org}.aem.page${cleanPath}`;
 }
 
 export function createElement(tag, attributes = {}, content = undefined) {

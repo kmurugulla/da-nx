@@ -541,7 +541,48 @@
   white-space: pre-wrap;
 }
 
-/* Responsive design */
+/* Date Details Row Styles */
+.usage-date-row {
+  background: #f8f9fa;
+  border-top: 1px solid #e5e7eb;
+}
+
+.date-details-cell {
+  padding: 6px 16px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.date-details {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.date-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.date-label {
+  font-weight: 500;
+  color: #374151;
+}
+
+.date-value {
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.date-separator {
+  color: #d1d5db;
+  font-weight: 300;
+}
+
+/* Responsive adjustments */
 @media (max-width: 768px) {
   .modal-overlay {
     padding: 10px;
@@ -575,6 +616,16 @@
   }
 
   .tab-btn.active::after {
+    display: none;
+  }
+
+  .date-details {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .date-separator {
     display: none;
   }
 }

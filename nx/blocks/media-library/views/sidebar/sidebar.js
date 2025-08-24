@@ -1,6 +1,6 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
-import { getMediaCounts, getAvailableSubtypes } from '../../utils/stats.js';
+import { getMediaCounts } from '../../utils/stats.js';
 
 const styles = await getStyle(import.meta.url);
 
