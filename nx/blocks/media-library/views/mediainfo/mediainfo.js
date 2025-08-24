@@ -396,6 +396,7 @@ class NxMediaInfo extends LitElement {
     try {
       const date = new Date(isoString);
       return date.toLocaleString('en-US', {
+        year: 'numeric',
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
@@ -556,18 +557,13 @@ class NxMediaInfo extends LitElement {
         <td colspan="${isPdf ? 3 : 4}" class="date-details-cell">
           <div class="date-details">
             <span class="date-item">
-              <span class="date-label">First:</span> 
+              <span class="date-label">First Used:</span> 
               <span class="date-value">${this.formatDateTime(usage.firstUsedAt)}</span>
             </span>
             <span class="date-separator">|</span>
             <span class="date-item">
-              <span class="date-label">Last:</span> 
+              <span class="date-label">Recently Modified:</span> 
               <span class="date-value">${this.formatDateTime(usage.lastUsedAt)}</span>
-            </span>
-            <span class="date-separator">|</span>
-            <span class="date-item">
-              <span class="date-label">Modified:</span> 
-              <span class="date-value">${this.formatDateTime(usage.lastUsageModifiedAt)}</span>
             </span>
           </div>
         </td>
