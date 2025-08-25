@@ -35,7 +35,7 @@ export function getMediaType(media) {
   if (type.startsWith('document >')) return 'document';
   if (type.startsWith('link >')) return 'link';
 
-  const mediaUrl = media.url || media.mediaUrl || '';
+  const mediaUrl = media.url || '';
   const ext = extractFileExtension(mediaUrl);
   return detectMediaTypeFromExtension(ext);
 }
@@ -73,7 +73,7 @@ export function getDisplayMediaType(media) {
     return typeLabels[media.type] || media.type.toUpperCase();
   }
 
-  const mediaUrl = media.url || media.mediaUrl || '';
+  const mediaUrl = media.url || '';
   const ext = extractFileExtension(mediaUrl);
   if (IMAGE_EXTENSIONS.includes(ext)) return 'IMAGE';
   if (ext === 'mp4') return 'VIDEO';

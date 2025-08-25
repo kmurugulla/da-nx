@@ -164,7 +164,7 @@ export function createElement(tag, attributes = {}, content = undefined) {
 }
 
 export async function copyMediaToClipboard(media) {
-  const mediaUrl = media.url || media.mediaUrl;
+  const mediaUrl = media.url;
   const mediaType = getMediaType(media);
 
   let clipboardContent = '';

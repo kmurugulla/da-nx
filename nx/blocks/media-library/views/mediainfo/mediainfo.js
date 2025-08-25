@@ -32,7 +32,7 @@ class NxMediaInfo extends LitElement {
     isOpen: { attribute: false },
     org: { attribute: false },
     repo: { attribute: false },
-    allMediaData: { attribute: false },
+    usageData: { attribute: false },
     _activeTab: { state: true },
     _exifData: { state: true },
     _loading: { state: true },
@@ -61,7 +61,7 @@ class NxMediaInfo extends LitElement {
     this._usageData = [];
     this._usageLoading = false;
     this._editingAltUsage = null;
-    this.allMediaData = [];
+    this.usageData = [];
     this._pdfBlobUrls = new Map();
   }
 
@@ -92,7 +92,7 @@ class NxMediaInfo extends LitElement {
       this.loadUsageData();
     }
 
-    if (changedProperties.has('allMediaData') && this.allMediaData && this.media) {
+    if (changedProperties.has('usageData') && this.usageData && this.media) {
       this.loadUsageData();
     }
 
@@ -133,23 +133,16 @@ class NxMediaInfo extends LitElement {
   }
 
   loadUsageData() {
-    if (!this.media || !this.media.url || !this.allMediaData) return;
+    if (!this.media || !this.media.url || !this.usageData) return;
 
     this._usageLoading = true;
     try {
-      const mediaUrl = this.media.url;
-      // Filter by URL and only include items with non-empty doc property
-      this._usageData = this.allMediaData.filter((item) => {
-        const hasValidDoc = item.doc && item.doc.trim();
-        return item.url === mediaUrl && hasValidDoc;
-      });
+      // Use pre-filtered usage data directly
+      this._usageData = this.usageData || [];
 
-      // If there are usages, switch to usage tab; otherwise stay on metadata tab
-      if (this._usageData.length > 0) {
-        this._activeTab = 'usage';
-      } else {
-        this._activeTab = 'metadata';
-      }
+      // Always show usage tab if there's any data for this media
+      // Even if no current usage, show the tab for potential usage
+      this._activeTab = 'usage';
     } catch (error) {
       this._usageData = [];
       this._activeTab = 'metadata';
@@ -745,16 +738,14 @@ class NxMediaInfo extends LitElement {
           </div>
 
           <div class="modal-tabs">
-            ${this._usageData.length > 0 ? html`
-              <button 
-                type="button"
-                class="tab-btn ${this._activeTab === 'usage' ? 'active' : ''}"
-                data-tab="usage"
-                @click=${this.handleTabChange}
-              >
-                Usage (${this._usageData.length})
-              </button>
-            ` : ''}
+            <button 
+              type="button"
+              class="tab-btn ${this._activeTab === 'usage' ? 'active' : ''}"
+              data-tab="usage"
+              @click=${this.handleTabChange}
+            >
+              Usage (${this._usageData.length})
+            </button>
             <button 
               type="button"
               class="tab-btn ${this._activeTab === 'metadata' ? 'active' : ''}"

@@ -9,7 +9,7 @@ class NxMediaGrid extends LitElement {
   static properties = {
     mediaData: { attribute: false },
     sitePath: { attribute: false },
-    isScanning: { attribute: false },
+    searchQuery: { attribute: false }, // NEW: Add searchQuery property
     _visibleStart: { state: true },
     _visibleEnd: { state: true },
     _itemWidth: { state: true },
@@ -50,15 +50,18 @@ class NxMediaGrid extends LitElement {
   }
 
   updated(changedProperties) {
+    // Always ensure scroll listener is attached when container is available
+    this.updateComplete.then(() => {
+      this._container = this.shadowRoot.querySelector('.media-main');
+
+      if (this._container && !this._scrollListenerAttached) {
+        this._container.addEventListener('scroll', () => this.onScroll());
+        this._scrollListenerAttached = true;
+      }
+    });
+
     if (changedProperties.has('mediaData') && this.mediaData && this.mediaData.length > 0) {
       this.updateComplete.then(() => {
-        this._container = this.shadowRoot.querySelector('.media-main');
-
-        if (this._container && !this._scrollListenerAttached) {
-          this._container.addEventListener('scroll', () => this.onScroll());
-          this._scrollListenerAttached = true;
-        }
-
         // Reset scroll position when data changes (not initial load)
         if (this._container && this._previousMediaDataLength > 0) {
           this.updateColCount();
@@ -243,6 +246,13 @@ class NxMediaGrid extends LitElement {
     this.forceContainerHeightRecalculation();
   }
 
+  // Add highlighting method
+  highlightMatch(text, query) {
+    if (!query || !text) return text;
+    const regex = new RegExp(`(${query})`, 'ig');
+    return text.replace(regex, '<mark>$1</mark>');
+  }
+
   createCardElement(media, cardIndex) {
     // Calculate position based on the card's absolute position in the grid
     // This ensures each card gets its correct position regardless of visible range
@@ -265,11 +275,17 @@ class NxMediaGrid extends LitElement {
     previewDiv.innerHTML = this.getMediaPreviewHTML(media, cardIndex);
     cardElement.appendChild(previewDiv);
 
-    // Create info div
+    // Create info div with highlighting
     const infoDiv = document.createElement('div');
     infoDiv.className = 'media-info';
+
+    // Apply highlighting to name, alt, and doc
+    const highlightedName = this.highlightMatch(this.getMediaName(media), this.searchQuery);
+    const highlightedAlt = this.highlightMatch(media.alt || '', this.searchQuery);
+    const highlightedDoc = this.highlightMatch(media.doc || '', this.searchQuery);
+
     infoDiv.innerHTML = `
-      <h3 class="media-name">${this.getMediaName(media)}</h3>
+      <h3 class="media-name">${highlightedName}</h3>
       <div class="media-meta">
         <span class="media-type">${getDisplayMediaType(media)}</span>
         <span class="media-used clickable" title="View usage details">Usage (${media.usageCount || 0})</span>
@@ -278,6 +294,8 @@ class NxMediaGrid extends LitElement {
           ${this.getMissingAltIndicatorHTML(media)}
         </div>
       </div>
+      ${highlightedAlt ? `<div class="media-alt">${highlightedAlt}</div>` : ''}
+      ${highlightedDoc ? `<div class="media-doc">${highlightedDoc}</div>` : ''}
     `;
     cardElement.appendChild(infoDiv);
 
@@ -385,7 +403,7 @@ class NxMediaGrid extends LitElement {
 
   handleMediaClick(e) {
     const { path } = e.currentTarget.dataset;
-    const media = this.mediaData.find((m) => m.url === path || m.mediaUrl === path);
+    const media = this.mediaData.find((m) => m.url === path);
     this.dispatchEvent(new CustomEvent('mediaClick', { detail: { media } }));
   }
 
@@ -396,7 +414,7 @@ class NxMediaGrid extends LitElement {
 
   handleUsageClick(e, media) {
     e.stopPropagation();
-    this.dispatchEvent(new CustomEvent('mediaInfo', { detail: { media } }));
+    this.dispatchEvent(new CustomEvent('mediaUsage', { detail: { media } }));
   }
 
   render() {
@@ -409,18 +427,10 @@ class NxMediaGrid extends LitElement {
 
   renderMainContent() {
     if (!this.mediaData || this.mediaData.length === 0) {
-      if (this.isScanning) {
-        return html`
-          <div class="empty-state">
-            <h2>Scanning in progress...</h2>
-            <p>Please wait while we discover media files on your site.</p>
-          </div>
-        `;
-      }
       return html`
         <div class="empty-state">
           <h2>No Results Found</h2>
-          <p>Try adjusting your filters or search criteria.</p>
+          <div class="spinner"></div>
         </div>
       `;
     }

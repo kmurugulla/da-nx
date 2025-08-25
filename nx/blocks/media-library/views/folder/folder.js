@@ -1,147 +1,131 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
+import getSvg from '../../../../public/utils/svg.js';
 
 const styles = await getStyle(import.meta.url);
+const nx = `${new URL(import.meta.url).origin}/nx`;
+const ICONS = [
+  `${nx}/public/icons/S2_Icon_Close_20_N.svg`,
+  `${nx}/public/icons/Smock_ChevronDown_18_N.svg`,
+];
 
 class NxMediaFolderDialog extends LitElement {
   static properties = {
-    mediaData: { attribute: false },
     isOpen: { attribute: false },
     selectedPaths: { attribute: false },
+    folderHierarchy: { attribute: false },
   };
 
   constructor() {
     super();
     this.isOpen = false;
-    this.selectedPaths = new Set();
-    this._searchQuery = '';
+    this._selectedPaths = new Set();
     this._expandedFolders = new Set();
+    this.folderHierarchy = new Map();
+  }
+
+  // Ensure selectedPaths is always a Set
+  set selectedPaths(value) {
+    if (value instanceof Set) {
+      this._selectedPaths = value;
+    } else if (Array.isArray(value)) {
+      this._selectedPaths = new Set(value);
+    } else {
+      this._selectedPaths = new Set();
+    }
+  }
+
+  get selectedPaths() {
+    return this._selectedPaths;
   }
 
   connectedCallback() {
     super.connectedCallback();
     this.shadowRoot.adoptedStyleSheets = [styles];
+
+    getSvg({ parent: this.shadowRoot, paths: ICONS });
+
+    // Listen for navigation events
+    this.addEventListener('navigateToPath', this.handleNavigateToPath);
+  }
+
+  updated(changedProperties) {
+    super.updated(changedProperties);
+
+    // Auto-expand to show selected paths when they change or when dialog opens
+    if ((changedProperties.has('selectedPaths') && this.selectedPaths.size > 0)
+        || (changedProperties.has('isOpen') && this.isOpen && this.selectedPaths.size > 0)) {
+      this.expandToSelectedPaths();
+    }
+  }
+
+  // NEW METHOD
+  handleNavigateToPath(e) {
+    const { path } = e.detail;
+    if (!path) return;
+
+    // Find the item in hierarchy
+    const item = this.findItemByPath(this.hierarchyData, path);
+    if (!item) return;
+
+    // Select the path
+    this._selectedPaths = new Set([path]);
+
+    // Expand parent folders to show this item
+    this.expandToPath(path);
+
+    // Dispatch filter change
+    this.dispatchEvent(new CustomEvent('filterChange', { detail: { paths: Array.from(this.selectedPaths) } }));
+  }
+
+  // NEW METHOD
+  expandToPath(path) {
+    const pathParts = path.split('/').filter(Boolean);
+
+    // Expand all parent folders to make the path visible
+    for (let i = 0; i < pathParts.length - 1; i += 1) {
+      const parentPath = pathParts.slice(0, i + 1).join('/');
+      this._expandedFolders.add(parentPath);
+    }
+
+    this.requestUpdate();
+  }
+
+  // NEW METHOD
+  expandToSelectedPaths() {
+    // Expand to show all selected paths
+    this.selectedPaths.forEach((path) => {
+      this.expandToPath(path);
+    });
   }
 
   get hierarchyData() {
-    if (!this.mediaData) {
+    if (!this.folderHierarchy || this.folderHierarchy.size === 0) {
       return [];
     }
 
-    const tree = {
-      children: new Map(),
-      files: new Map(),
-      count: 0,
-    };
+    // Build hierarchical structure - only show root level items
+    const rootItems = [];
 
-    this.mediaData.forEach((media) => {
-      if (!media.doc) {
-        return;
+    this.folderHierarchy.forEach((folder) => {
+      // Only add items that don't have a parent (root level)
+      if (!folder.parent) {
+        const itemWithExpansion = {
+          ...folder,
+          isExpanded: this._expandedFolders.has(folder.path),
+        };
+        rootItems.push(itemWithExpansion);
       }
-
-      const pathParts = media.doc.split('/').filter(Boolean);
-
-      if (pathParts.length === 0) {
-        return;
-      }
-
-      if (pathParts.length === 1) {
-        const fileName = pathParts[0];
-        if (!tree.files.has(fileName)) {
-          tree.files.set(fileName, {
-            name: fileName,
-            path: fileName,
-            fullPath: `/${fileName}`,
-            type: 'file',
-            count: 0,
-          });
-        }
-        tree.files.get(fileName).count += 1;
-        tree.count += 1;
-        return;
-      }
-
-      let currentLevel = tree;
-
-      for (let i = 0; i < pathParts.length - 1; i += 1) {
-        const folderName = pathParts[i];
-
-        if (!currentLevel.children.has(folderName)) {
-          const folderPath = pathParts.slice(0, i + 1).join('/');
-          currentLevel.children.set(folderName, {
-            name: folderName,
-            path: folderPath,
-            fullPath: folderPath,
-            type: 'folder',
-            children: new Map(),
-            files: new Map(),
-            count: 0,
-            isExpanded: this._expandedFolders.has(folderPath),
-          });
-        }
-
-        currentLevel = currentLevel.children.get(folderName);
-      }
-
-      const fileName = pathParts[pathParts.length - 1];
-      if (!currentLevel.files.has(fileName)) {
-        currentLevel.files.set(fileName, {
-          name: fileName,
-          path: pathParts.join('/'),
-          fullPath: media.doc,
-          type: 'file',
-          count: 0,
-        });
-      }
-
-      currentLevel.files.get(fileName).count += 1;
-      currentLevel.count += 1;
-
-      let parent = currentLevel;
-      while (parent !== tree) {
-        parent.count += 1;
-        parent = this.findParent(tree, parent.path);
-      }
-      tree.count += 1;
     });
 
-    const result = [];
-
-    tree.files.forEach((file) => {
-      result.push(file);
+    // Sort alphabetically
+    rootItems.sort((a, b) => {
+      const aName = a.name || '';
+      const bName = b.name || '';
+      return aName.localeCompare(bName);
     });
 
-    tree.children.forEach((folder) => {
-      folder.isExpanded = this._expandedFolders.has(folder.fullPath);
-
-      const folderFiles = Array.from(folder.files.values());
-      const folderChildren = Array.from(folder.children.values()).map((child) => ({
-        ...child,
-        isExpanded: this._expandedFolders.has(child.fullPath),
-      }));
-
-      const folderItems = [...folderFiles, ...folderChildren].sort((a, b) => {
-        if (a.type !== b.type) {
-          return a.type === 'folder' ? -1 : 1;
-        }
-        return a.name.localeCompare(b.name);
-      });
-
-      const folderWithChildren = {
-        ...folder,
-        children: new Map(folderItems.map((item) => [item.name, item])),
-      };
-      result.push(folderWithChildren);
-    });
-
-    result.sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type === 'folder' ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
-
-    return result;
+    return rootItems;
   }
 
   findParent(tree, childPath) {
@@ -160,16 +144,8 @@ class NxMediaFolderDialog extends LitElement {
   }
 
   get filteredHierarchy() {
-    const items = this.hierarchyData;
-    if (!this._searchQuery) return items;
-
-    return items.filter((item) => item.name.toLowerCase().includes(this._searchQuery.toLowerCase())
-      || item.fullPath.toLowerCase().includes(this._searchQuery.toLowerCase()));
-  }
-
-  handleSearch(e) {
-    this._searchQuery = e.target.value;
-    this.requestUpdate();
+    // Remove search filtering - just return all items
+    return this.hierarchyData;
   }
 
   handleItemClick(e) {
@@ -178,25 +154,53 @@ class NxMediaFolderDialog extends LitElement {
 
     const hierarchyItem = this.findItemByPath(this.hierarchyData, path);
 
-    if (hierarchyItem && hierarchyItem.type === 'folder') {
-      const newExpandedState = !hierarchyItem.isExpanded;
+    // Check if it's a file or folder
+    const isFile = hierarchyItem && hierarchyItem.type === 'file';
+    const hasChildren = hierarchyItem && hierarchyItem.children && hierarchyItem.children.size > 0;
+    const hasFiles = hierarchyItem && hierarchyItem.hasFiles;
 
-      if (newExpandedState) {
-        this._expandedFolders.add(hierarchyItem.fullPath);
-      } else {
-        this._expandedFolders.delete(hierarchyItem.fullPath);
-      }
-
-      this.requestUpdate();
-    } else {
+    if (isFile) {
       // For files, select and close the dialog
-      const newSelectedPaths = new Set(this.selectedPaths);
+      const newSelectedPaths = new Set(this._selectedPaths);
       if (newSelectedPaths.has(path)) {
         newSelectedPaths.delete(path);
       } else {
         newSelectedPaths.add(path);
       }
-      this.selectedPaths = newSelectedPaths;
+      this._selectedPaths = newSelectedPaths;
+      this.dispatchEvent(new CustomEvent('filterChange', { detail: { paths: Array.from(this.selectedPaths) } }));
+      this.handleClose();
+    } else if (hasChildren) {
+      // For folders with subfolders, toggle expansion
+      const newExpandedState = !hierarchyItem.isExpanded;
+
+      if (newExpandedState) {
+        this._expandedFolders.add(hierarchyItem.path);
+      } else {
+        this._expandedFolders.delete(hierarchyItem.path);
+      }
+
+      this.requestUpdate();
+    } else if (hasFiles) {
+      // For folders with files (but no subfolders), select and close the dialog
+      const newSelectedPaths = new Set(this._selectedPaths);
+      if (newSelectedPaths.has(path)) {
+        newSelectedPaths.delete(path);
+      } else {
+        newSelectedPaths.add(path);
+      }
+      this._selectedPaths = newSelectedPaths;
+      this.dispatchEvent(new CustomEvent('filterChange', { detail: { paths: Array.from(this.selectedPaths) } }));
+      this.handleClose();
+    } else {
+      // For truly empty folders, select and close the dialog
+      const newSelectedPaths = new Set(this._selectedPaths);
+      if (newSelectedPaths.has(path)) {
+        newSelectedPaths.delete(path);
+      } else {
+        newSelectedPaths.add(path);
+      }
+      this._selectedPaths = newSelectedPaths;
       this.dispatchEvent(new CustomEvent('filterChange', { detail: { paths: Array.from(this.selectedPaths) } }));
       this.handleClose();
     }
@@ -204,14 +208,18 @@ class NxMediaFolderDialog extends LitElement {
 
   findItemByPath(items, path) {
     for (const item of items) {
-      if (item.fullPath === path) {
+      if (item.path === path) {
         return item;
       }
     }
 
+    // Search in children if they exist
     for (const item of items) {
       if (item.children && item.children.size > 0) {
-        const childItems = Array.from(item.children.values());
+        const childPaths = Array.from(item.children.values());
+        const childItems = childPaths
+          .map((childPath) => this.folderHierarchy.get(childPath))
+          .filter(Boolean);
         const found = this.findItemByPath(childItems, path);
         if (found) {
           return found;
@@ -233,48 +241,87 @@ class NxMediaFolderDialog extends LitElement {
   }
 
   handleClear() {
-    this.selectedPaths = new Set();
+    this._selectedPaths = new Set();
     this.dispatchEvent(new CustomEvent('filterChange', { detail: { paths: [] } }));
+  }
+
+  handleClearPath(path) {
+    const newSelectedPaths = new Set(this._selectedPaths);
+    newSelectedPaths.delete(path);
+    this._selectedPaths = newSelectedPaths;
+    this.dispatchEvent(new CustomEvent('filterChange', { detail: { paths: Array.from(this._selectedPaths) } }));
+  }
+
+  // Cache no longer needed - using pre-calculated hierarchy
+
+  // Folder counts are now pre-calculated in media-library
+
+  getDisplayName(fullPath) {
+    if (!fullPath) return '';
+
+    // Extract just the filename from the path
+    const pathParts = fullPath.split('/').filter(Boolean);
+    const fileName = pathParts[pathParts.length - 1];
+
+    // Remove file extension for cleaner display
+    return fileName.replace(/\.[^/.]+$/, '');
   }
 
   render() {
     if (!this.isOpen) return html``;
-
-    const filteredItems = this.filteredHierarchy;
 
     return html`
       <div class="dialog-overlay" @click=${this.handleClose}>
         <div class="dialog-content" @click=${(e) => e.stopPropagation()}>
           <div class="dialog-header">
             <h2>Filter by Folder Structure</h2>
-            <sl-button type="button" size="small" class="primary outline" @click=${this.handleClose}>
-              Close
-            </sl-button>
+            <div class="header-actions">
+              <sl-button type="button" size="small" class="primary outline" @click=${this.handleClose}>
+                Close
+              </sl-button>
+            </div>
           </div>
 
           <div class="dialog-body">
-            <div class="search-container">
-              <sl-input type="text"
-                placeholder="Search folders & files..."
-                .value=${this._searchQuery}
-                @input=${this.handleSearch}
-                size="large"
-              >
-                <span slot="prefix">🔍</span>
-              </sl-input>
-            </div>
-
             <div class="hierarchy-content">
-              ${filteredItems.length === 0 ? html`
+              ${this.hierarchyData.length === 0 ? html`
                 <div class="empty-state">
-                  <p>${this._searchQuery ? 'No items found matching your search.' : 'No media files found.'}</p>
+                  <p>No media files found.</p>
                 </div>
               ` : html`
                 <div class="hierarchy-list">
-                  ${this.renderHierarchyItems(filteredItems, 0)}
+                  ${this.renderHierarchyItems(this.hierarchyData, 0)}
                 </div>
               `}
             </div>
+          </div>
+
+          <div class="dialog-footer">
+            ${this.selectedPaths.size > 0 ? html`
+              <div class="selected-paths-container">
+                <div class="selected-paths">
+                  ${Array.from(this.selectedPaths).map((path) => html`
+                    <div class="selected-path-item">
+                      <span class="path-name">${this.getDisplayName(path)}</span>
+                      <button 
+                        class="clear-path-btn" 
+                        @click=${() => this.handleClearPath(path)}
+                        title="Remove ${this.getDisplayName(path)}"
+                      >
+                        <svg class="icon">
+                          <use href="#S2_Icon_Close_20_N"></use>
+                        </svg>
+                      </button>
+                    </div>
+                  `)}
+                </div>
+                <div class="clear-all-row">
+                  <sl-button type="button" size="small" class="secondary" @click=${this.handleClear}>
+                    Clear All
+                  </sl-button>
+                </div>
+              </div>
+            ` : ''}
           </div>
         </div>
       </div>
@@ -285,46 +332,72 @@ class NxMediaFolderDialog extends LitElement {
     return items.map((item) => html`
       <div class="hierarchy-item-wrapper">
         <div 
-          class="hierarchy-item ${this.selectedPaths.has(item.fullPath) ? 'selected' : ''} ${item.type === 'folder' ? 'folder-item' : 'file-item'}"
-          data-path="${item.fullPath}"
+          class="hierarchy-item ${this.selectedPaths.has(item.path) ? 'selected' : ''} ${item.type === 'folder' ? 'folder-item' : 'file-item'}"
+          data-path="${item.path}"
           @click=${this.handleItemClick}
           style="padding-left: ${level * 16}px;"
         >
           <div class="item-icon">
             ${item.type === 'folder' ? html`
               <div class="folder-icon-container">
-                ${(item.children && item.children.size > 0) || (item.files && item.files.size > 0) ? html`
-                  <span class="expand-icon ${item.isExpanded ? 'expanded' : ''}">▼</span>
+                ${item.children && item.children.size > 0 ? html`
+                  <svg class="expand-icon ${item.isExpanded ? 'expanded' : ''}">
+                    <use href="#spectrum-chevronDown"></use>
+                  </svg>
+                ` : html`
+                  <svg class="folder-icon">
+                    <use href="#S2IconFolder20N-icon"></use>
+                  </svg>
+                `}
+                ${item.hasFiles && (!item.children || item.children.size === 0) ? html`
+                  <svg class="file-indicator" title="Contains files">
+                    <use href="#S2IconFileConvert20N-icon"></use>
+                  </svg>
                 ` : ''}
+              </div>
+            ` : ''}
+            ${item.type === 'file' ? html`
+              <div class="file-icon-container">
+                <svg class="file-icon">
+                  <use href="#S2IconFileConvert20N-icon"></use>
+                </svg>
               </div>
             ` : ''}
           </div>
           <div class="item-name">
-            ${item.name}
+            ${item.name || ''}
           </div>
           <div class="item-count">${item.count}</div>
         </div>
         
-        ${item.type === 'folder' && item.isExpanded ? html`
+        ${item.isExpanded ? html`
           <div class="folder-children expanded">
             ${(() => {
     const allItems = [];
 
-    if (item.files && item.files.size > 0) {
-      const files = Array.from(item.files.values());
-      allItems.push(...files);
-    }
-
     if (item.children && item.children.size > 0) {
-      const children = Array.from(item.children.values());
-      allItems.push(...children);
+      const childPaths = Array.from(item.children.values());
+
+      // Get all child items from the hierarchy
+      const childItems = childPaths.map((path) => {
+        const found = this.folderHierarchy.get(path);
+        if (found) {
+          // Ensure child items have the isExpanded property set
+          return {
+            ...found,
+            isExpanded: this._expandedFolders.has(found.path),
+          };
+        }
+        return found;
+      }).filter(Boolean);
+
+      allItems.push(...childItems);
     }
 
     allItems.sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type === 'folder' ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
+      const aName = a.name || '';
+      const bName = b.name || '';
+      return aName.localeCompare(bName);
     });
 
     return this.renderHierarchyItems(allItems, level + 1);

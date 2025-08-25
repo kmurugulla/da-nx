@@ -2,18 +2,116 @@
 
 import { daFetch } from '../../../utils/daFetch.js';
 import { DA_ORIGIN } from '../../../public/utils/constants.js';
-import { getScanLockPath, saveMediaJson, loadMediaJson } from './storage.js';
+import { saveMediaJson, loadMediaJson } from './storage.js';
+import { getScanLockPath, getLastModifiedDataPath, getMediaJsonPath, getMediaLibraryPath } from './paths.js';
 import { crawl } from '../../../public/utils/tree.js';
 import { parseHtmlMedia } from './parsing.js';
 import { isMediaFile, extractFileExtension, detectMediaTypeFromExtension } from './types.js';
-import { createHash, groupUsagesByPath } from './utils.js';
+import { createHash } from './utils.js';
 
-let lastMediaJsonModified = null;
+// LastModified tracking functions
+async function createJsonBlob(data, type = 'sheet') {
+  const sheetMeta = {
+    total: data.length,
+    limit: data.length,
+    offset: 0,
+    data,
+    ':type': type,
+  };
+  const blob = new Blob([JSON.stringify(sheetMeta, null, 2)], { type: 'application/json' });
+  const formData = new FormData();
+  formData.append('data', blob);
+  return formData;
+}
+
+async function getLastModifiedPath(org, repo, folderName = 'root') {
+  return getLastModifiedDataPath(org, repo, folderName);
+}
+
+async function loadLastModifiedData(org, repo, folderName = 'root') {
+  const path = await getLastModifiedPath(org, repo, folderName);
+  try {
+    const resp = await daFetch(`${DA_ORIGIN}/source${path}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      return data.data || data || [];
+    }
+  } catch (error) {
+    // File doesn't exist or other error
+  }
+  return [];
+}
+
+async function saveLastModifiedData(org, repo, folderName, data) {
+  const path = await getLastModifiedPath(org, repo, folderName);
+  const formData = await createJsonBlob(data);
+  return daFetch(`${DA_ORIGIN}/source${path}`, {
+    method: 'PUT',
+    body: formData,
+  });
+}
+
+function splitPathParts(fullPath) {
+  const pathParts = fullPath.split('/').filter(Boolean);
+  const relativePathParts = pathParts.slice(2); // Remove /da-pilot/docket/
+  return { pathParts, relativePathParts };
+}
+
+function groupFilesByFolder(crawlItems) {
+  const rootFiles = [];
+  const folderFiles = {};
+
+  crawlItems.forEach((item) => {
+    // Extract extension from path
+    const ext = item.path.split('.').pop().toLowerCase();
+
+    // Only include HTML and media files
+    if (ext === 'html' || isMediaFile(ext)) {
+      const fileInfo = {
+        path: item.path,
+        lastModified: item.lastModified,
+      };
+
+      const { relativePathParts } = splitPathParts(item.path);
+
+      if (relativePathParts.length === 1) {
+        // Root level file
+        rootFiles.push(fileInfo);
+      } else if (relativePathParts.length > 1) {
+        // Folder file
+        const folderName = relativePathParts[0];
+        if (!folderFiles[folderName]) {
+          folderFiles[folderName] = [];
+        }
+        folderFiles[folderName].push(fileInfo);
+      }
+    }
+  });
+
+  return { rootFiles, folderFiles };
+}
+
+function getLastMediaJsonModifiedKey(org, repo) {
+  return `${org}-${repo}-media-lastupdated`;
+}
+
+function getLastMediaJsonModified(org, repo) {
+  const key = getLastMediaJsonModifiedKey(org, repo);
+  const stored = localStorage.getItem(key);
+  return stored ? parseInt(stored, 10) : null;
+}
+
+function setLastMediaJsonModified(org, repo, timestamp) {
+  const key = getLastMediaJsonModifiedKey(org, repo);
+  localStorage.setItem(key, timestamp.toString());
+}
 
 export async function checkMediaJsonModified(org, repo) {
   try {
-    const mediaFolderPath = `/${org}/${repo}/.da/media`;
-    const mediaJsonPath = `/${org}/${repo}/.da/media/media.json`;
+    const mediaFolderPath = getMediaLibraryPath(org, repo);
+    const mediaJsonPath = getMediaJsonPath(org, repo);
+
+    const lastMediaJsonModified = getLastMediaJsonModified(org, repo);
 
     let mediaJsonEntry = null;
 
@@ -32,7 +130,8 @@ export async function checkMediaJsonModified(org, repo) {
 
     const { lastModified } = mediaJsonEntry;
     const hasChanged = !lastMediaJsonModified || lastModified > lastMediaJsonModified;
-    lastMediaJsonModified = lastModified;
+
+    setLastMediaJsonModified(org, repo, lastModified);
 
     return { hasChanged, fileTimestamp: lastModified };
   } catch (error) {
@@ -101,6 +200,7 @@ export default async function runScan(path, updateTotal, org, repo) {
   let totalMediaScanned = 0;
   const allMediaUsage = [];
   const unusedMedia = [];
+  const allCrawlItems = []; // Collect all crawl items for lastModified tracking
 
   const existingLock = await checkScanLock(org, repo);
   if (existingLock.exists && existingLock.locked) {
@@ -118,65 +218,54 @@ export default async function runScan(path, updateTotal, org, repo) {
 
   const existingMediaData = await loadMediaJson(org, repo) || [];
 
-  const existingMediaMap = new Map();
-  existingMediaData.forEach((item) => {
-    existingMediaMap.set(item.mediaUrl, item);
-  });
+  // Load existing lastModified data for change detection
+  const lastModifiedMap = new Map();
 
-  // Build map of document timestamps from existing media data
-  const previousDocTimestamps = new Map();
-  const groupedUsages = groupUsagesByPath(existingMediaData);
+  // Load root files
+  try {
+    const rootData = await loadLastModifiedData(org, repo, 'root');
+    rootData.forEach((item) => {
+      lastModifiedMap.set(item.path, item.lastModified);
+    });
+  } catch (error) {
+    // Root file doesn't exist yet, that's okay
+  }
 
-  groupedUsages.forEach((group) => {
-    // Find the most recent lastUsedAt timestamp for this document
-    const latestTimestamp = group.usages.reduce((latest, usage) => {
-      if (usage.lastUsedAt) {
-        const timestamp = new Date(usage.lastUsedAt).getTime();
-        return Math.max(latest, timestamp);
-      }
-      return latest;
-    }, 0);
+  // Load folder files - we need to discover what folders exist
+  // For now, let's try common folder names, or we could scan the directory
+  const commonFolders = ['media', 'fragments', 'drafts', 'authors', 'developers', 'administrators', 'about', 'ja', 'fr', 'es', 'de', 'cn'];
 
-    if (latestTimestamp > 0) {
-      previousDocTimestamps.set(group.path, latestTimestamp);
-    }
-  });
-
-  const mediaInUse = new Set();
-
-  function processMediaUsage(newUsage, existingData, docLastModified) {
-    const existingEntry = existingData.find(
-      (entry) => entry.doc === newUsage.doc && entry.url === newUsage.url,
-    );
-
-    if (!existingEntry) {
-      // New usage - timestamps already set in createMediaUsage
-      return;
-    }
-
-    // Existing usage - check if changed using hash
-    if (existingEntry.hash === newUsage.hash) {
-      // No change - just update lastUsedAt if document changed
-      newUsage.firstUsedAt = existingEntry.firstUsedAt;
-      newUsage.lastUsedAt = docLastModified || new Date().toISOString();
-    } else {
-      // Usage changed - update timestamps
-      newUsage.firstUsedAt = existingEntry.firstUsedAt;
-      newUsage.lastUsedAt = docLastModified || new Date().toISOString();
+  for (const folderName of commonFolders) {
+    try {
+      const folderData = await loadLastModifiedData(org, repo, folderName);
+      folderData.forEach((item) => {
+        lastModifiedMap.set(item.path, item.lastModified);
+      });
+    } catch (error) {
+      // Folder file doesn't exist yet, that's okay
     }
   }
 
+  const mediaInUse = new Set();
+
   const callback = async (item) => {
+    // Collect all HTML and media files for lastModified tracking
+    if (item.ext === 'html' || isMediaFile(item.ext)) {
+      allCrawlItems.push({
+        path: item.path,
+        lastModified: item.lastModified,
+      });
+    }
+
     if (item.path.endsWith('.html')) {
       totalPagesScanned += 1;
       updateTotal('page', totalPagesScanned, pageTotal);
 
       // Check if document has been modified since last scan
-      const docPreviousTimestamp = previousDocTimestamps.get(item.path);
-      const isDocModified = !docPreviousTimestamp
-        || item.lastModified > docPreviousTimestamp;
+      const previousTimestamp = lastModifiedMap.get(item.path);
+      const shouldScan = !previousTimestamp || item.lastModified > previousTimestamp;
 
-      if (isDocModified) {
+      if (shouldScan) {
         // Only scan modified HTML files
         const resp = await daFetch(`${DA_ORIGIN}/source${item.path}`);
         if (resp.ok) {
@@ -187,9 +276,8 @@ export default async function runScan(path, updateTotal, org, repo) {
           const docLastModified = new Date(item.lastModified).toISOString();
           const mediaUsage = await parseHtmlMedia(text, item.path, org, repo, docLastModified);
 
-          // Process each usage with hash comparison
+          // Process each usage
           mediaUsage.forEach((usage) => {
-            processMediaUsage(usage, existingMediaData, docLastModified);
             mediaInUse.add(usage.url);
           });
 
@@ -204,25 +292,51 @@ export default async function runScan(path, updateTotal, org, repo) {
       totalMediaScanned += 1;
       updateTotal('media', totalMediaScanned, mediaTotal);
 
-      // Always process media files since we don't track previous timestamps
+      // Check if this media file already exists in our data
       const mediaUrl = `${CONTENT_ORIGIN}${item.path}`;
-      const fileExt = extractFileExtension(item.ext);
-      const mediaType = detectMediaTypeFromExtension(fileExt);
-      const type = `${mediaType} > ${fileExt}`;
+      const existingMediaEntry = existingMediaData.find((entry) => entry.url === mediaUrl);
 
-      unusedMedia.push({
-        url: mediaUrl,
-        name: item.name,
-        doc: '',
-        alt: '',
-        type,
-        ctx: '',
-        // NEW FIELDS
-        hash: createHash(mediaUrl),
-        firstUsedAt: new Date(item.lastModified).toISOString(),
-        lastUsedAt: new Date(item.lastModified).toISOString(),
-      });
-      mediaTotal += 1;
+      if (existingMediaEntry) {
+        // Media file already exists - check if it has changed
+        const fileExt = extractFileExtension(item.ext);
+        const mediaType = detectMediaTypeFromExtension(fileExt);
+        const type = `${mediaType} > ${fileExt}`;
+        const newHash = createHash(mediaUrl);
+
+        // Only add to unused media if hash is different (file changed)
+        if (existingMediaEntry.hash !== newHash) {
+          unusedMedia.push({
+            url: mediaUrl,
+            name: item.name,
+            doc: '',
+            alt: '',
+            type,
+            ctx: '',
+            hash: newHash,
+            firstUsedAt: existingMediaEntry.firstUsedAt,
+            lastUsedAt: new Date(item.lastModified).toISOString(),
+          });
+          mediaTotal += 1;
+        }
+      } else {
+        // New media file
+        const fileExt = extractFileExtension(item.ext);
+        const mediaType = detectMediaTypeFromExtension(fileExt);
+        const type = `${mediaType} > ${fileExt}`;
+
+        unusedMedia.push({
+          url: mediaUrl,
+          name: item.name,
+          doc: '',
+          alt: '',
+          type,
+          ctx: '',
+          hash: createHash(mediaUrl),
+          firstUsedAt: new Date(item.lastModified).toISOString(),
+          lastUsedAt: new Date(item.lastModified).toISOString(),
+        });
+        mediaTotal += 1;
+      }
       updateTotal('media', totalMediaScanned, mediaTotal);
     }
   };
@@ -232,13 +346,12 @@ export default async function runScan(path, updateTotal, org, repo) {
 
   const allMediaEntries = [];
   const processedUrls = new Set();
+  let hasActualChanges = false;
 
-  // First, add all existing entries that are still valid
+  // First, preserve ALL existing entries - be very conservative
   existingMediaData.forEach((item) => {
-    if (mediaInUse.has(item.url) || !item.doc) {
-      allMediaEntries.push(item);
-      processedUrls.add(item.url);
-    }
+    allMediaEntries.push(item);
+    processedUrls.add(item.url);
   });
 
   // Then, replace/add new usage entries
@@ -246,7 +359,23 @@ export default async function runScan(path, updateTotal, org, repo) {
     // Remove existing entry if it exists
     const existingIndex = allMediaEntries.findIndex((entry) => entry.url === usage.url);
     if (existingIndex !== -1) {
+      const existingEntry = allMediaEntries[existingIndex];
+
+      // Only mark as changed if alt text actually changed
+      // Ignore document path changes to prevent oscillation
+      const altChanged = existingEntry.alt !== usage.alt;
+
+      // Only consider it a change if alt text changed
+      // Document path changes are ignored to prevent oscillation
+      const significantChange = altChanged;
+
+      if (significantChange) {
+        hasActualChanges = true;
+      }
       allMediaEntries.splice(existingIndex, 1);
+    } else {
+      // New entry - this is a change
+      hasActualChanges = true;
     }
     allMediaEntries.push(usage);
     processedUrls.add(usage.url);
@@ -262,16 +391,51 @@ export default async function runScan(path, updateTotal, org, repo) {
         type: item.type || '',
         ctx: item.ctx || '',
       });
+      // New unused media - this is a change
+      hasActualChanges = true;
     }
   });
 
   const mediaDataWithCount = allMediaEntries
     .filter((item) => item.url && item.name);
 
-  const hasActualChanges = pageTotal > 0 || mediaTotal > 0;
-
   if (hasActualChanges) {
     await saveMediaJson(mediaDataWithCount, org, repo);
+  }
+
+  // Save lastModified data for next scan - only if changed
+  const { rootFiles, folderFiles } = groupFilesByFolder(allCrawlItems);
+
+  // Check if root files changed
+  const rootChanged = rootFiles.some((file) => {
+    const existing = lastModifiedMap.get(file.path);
+    return !existing || existing !== file.lastModified;
+  });
+
+  // Check if any folder files changed
+  const folderChanged = Object.entries(folderFiles).some(([, files]) => files.some((file) => {
+    const existing = lastModifiedMap.get(file.path);
+    return !existing || existing !== file.lastModified;
+  }));
+
+  // Only save root files if changed
+  if (rootChanged) {
+    try {
+      await saveLastModifiedData(org, repo, 'root', rootFiles);
+    } catch (error) {
+      console.error('Error saving root.json:', error);
+    }
+  }
+
+  // Only save folder files if changed
+  if (folderChanged) {
+    for (const [folderName, files] of Object.entries(folderFiles)) {
+      try {
+        await saveLastModifiedData(org, repo, folderName, files);
+      } catch (error) {
+        console.error(`Error saving ${folderName}.json:`, error);
+      }
+    }
   }
 
   await removeScanLock(org, repo);

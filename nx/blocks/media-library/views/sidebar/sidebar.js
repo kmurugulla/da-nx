@@ -1,17 +1,15 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
-import { getMediaCounts } from '../../utils/stats.js';
 
 const styles = await getStyle(import.meta.url);
 
 class NxMediaSidebar extends LitElement {
   static properties = {
-    mediaData: { attribute: false },
-    _activeFilter: { state: true },
     selectedDocument: { attribute: false },
     documentMediaBreakdown: { attribute: false },
     folderFilterPaths: { attribute: false },
     activeFilter: { attribute: false },
+    filterCounts: { attribute: false },
   };
 
   constructor() {
@@ -20,6 +18,7 @@ class NxMediaSidebar extends LitElement {
     this.documentMediaBreakdown = null;
     this.folderFilterPaths = [];
     this.activeFilter = 'all';
+    this.filterCounts = {};
   }
 
   connectedCallback() {
@@ -29,15 +28,11 @@ class NxMediaSidebar extends LitElement {
 
   updated(changedProperties) {
     super.updated(changedProperties);
-
-    if (changedProperties.has('activeFilter') && this.activeFilter) {
-      this._activeFilter = this.activeFilter;
-    }
+    // No longer needed - using activeFilter directly
   }
 
   handleFilter(e) {
     const filterType = e.target.dataset.filter;
-    this._activeFilter = filterType;
 
     // Clear document filter when "All Media" is clicked
     if (filterType === 'all' && this.folderFilterPaths && this.folderFilterPaths.length > 0) {
@@ -48,7 +43,7 @@ class NxMediaSidebar extends LitElement {
   }
 
   get mediaCounts() {
-    return getMediaCounts(this.mediaData);
+    return this.filterCounts || {};
   }
 
   getDisplayName(fullPath) {
@@ -64,7 +59,6 @@ class NxMediaSidebar extends LitElement {
 
   handleDocumentFilter(e) {
     const filterType = e.target.dataset.filter;
-    this._activeFilter = filterType;
     this.dispatchEvent(new CustomEvent('documentFilter', {
       detail: {
         type: filterType,
@@ -88,70 +82,70 @@ class NxMediaSidebar extends LitElement {
               <button 
                 data-filter="all" 
                 @click=${this.handleFilter}
-                class="${this._activeFilter === 'all' ? 'active' : ''}"
+                class="${this.activeFilter === 'all' ? 'active' : ''}"
               >
                 All Media
-                <span class="count">${counts.total}</span>
+                <span class="count">${counts.all || 0}</span>
               </button>
             </li>
             <li>
               <button 
                 data-filter="images" 
                 @click=${this.handleFilter}
-                class="${this._activeFilter === 'images' ? 'active' : ''}"
+                class="${this.activeFilter === 'images' ? 'active' : ''}"
               >
                 Images
-                <span class="count">${counts.images}</span>
+                <span class="count">${counts.images || 0}</span>
               </button>
             </li>
             <li>
               <button 
                 data-filter="icons" 
                 @click=${this.handleFilter}
-                class="${this._activeFilter === 'icons' ? 'active' : ''}"
+                class="${this.activeFilter === 'icons' ? 'active' : ''}"
               >
                 Icons
-                <span class="count">${counts.icons}</span>
+                <span class="count">${counts.icons || 0}</span>
               </button>
             </li>
             <li>
               <button 
                 data-filter="videos" 
                 @click=${this.handleFilter}
-                class="${this._activeFilter === 'videos' ? 'active' : ''}"
+                class="${this.activeFilter === 'videos' ? 'active' : ''}"
               >
                 Videos
-                <span class="count">${counts.videos}</span>
+                <span class="count">${counts.videos || 0}</span>
               </button>
             </li>
             <li>
               <button 
                 data-filter="documents" 
                 @click=${this.handleFilter}
-                class="${this._activeFilter === 'documents' ? 'active' : ''}"
+                class="${this.activeFilter === 'documents' ? 'active' : ''}"
               >
                 Documents
-                <span class="count">${counts.documents}</span>
+                <span class="count">${counts.documents || 0}</span>
               </button>
             </li>
             <li>
               <button 
                 data-filter="links" 
                 @click=${this.handleFilter}
-                class="${this._activeFilter === 'links' ? 'active' : ''}"
+                class="${this.activeFilter === 'links' ? 'active' : ''}"
               >
                 Links
-                <span class="count">${counts.links}</span>
+                <span class="count">${counts.links || 0}</span>
               </button>
             </li>
             <li>
               <button 
                 data-filter="missingAlt" 
                 @click=${this.handleFilter}
-                class="${this._activeFilter === 'missingAlt' ? 'active' : ''}"
+                class="${this.activeFilter === 'missingAlt' ? 'active' : ''}"
               >
                 No Alt
-                <span class="count">${counts.missingAlt}</span>
+                <span class="count">${counts.missingAlt || 0}</span>
               </button>
             </li>
           </ul>
@@ -172,7 +166,7 @@ class NxMediaSidebar extends LitElement {
                 <button 
                   data-filter="documentTotal" 
                   @click=${this.handleDocumentFilter}
-                  class="${this._activeFilter === 'documentTotal' ? 'active' : ''}"
+                  class="${this.activeFilter === 'documentTotal' ? 'active' : ''}"
                 >
                   Total Media
                   <span class="count">${this.documentMediaBreakdown.total}</span>
@@ -183,7 +177,7 @@ class NxMediaSidebar extends LitElement {
                   <button 
                     data-filter="documentImages" 
                     @click=${this.handleDocumentFilter}
-                    class="${this._activeFilter === 'documentImages' ? 'active' : ''}"
+                    class="${this.activeFilter === 'documentImages' ? 'active' : ''}"
                   >
                     Images
                     <span class="count">${this.documentMediaBreakdown.images}</span>
@@ -195,7 +189,7 @@ class NxMediaSidebar extends LitElement {
                   <button 
                     data-filter="documentIcons" 
                     @click=${this.handleDocumentFilter}
-                    class="${this._activeFilter === 'documentIcons' ? 'active' : ''}"
+                    class="${this.activeFilter === 'documentIcons' ? 'active' : ''}"
                   >
                     Icons
                     <span class="count">${this.documentMediaBreakdown.icons}</span>
@@ -207,7 +201,7 @@ class NxMediaSidebar extends LitElement {
                   <button 
                     data-filter="documentVideos" 
                     @click=${this.handleDocumentFilter}
-                    class="${this._activeFilter === 'documentVideos' ? 'active' : ''}"
+                    class="${this.activeFilter === 'documentVideos' ? 'active' : ''}"
                   >
                     Videos
                     <span class="count">${this.documentMediaBreakdown.videos}</span>
@@ -219,7 +213,7 @@ class NxMediaSidebar extends LitElement {
                   <button 
                     data-filter="documentDocuments" 
                     @click=${this.handleDocumentFilter}
-                    class="${this._activeFilter === 'documentDocuments' ? 'active' : ''}"
+                    class="${this.activeFilter === 'documentDocuments' ? 'active' : ''}"
                   >
                     Documents
                     <span class="count">${this.documentMediaBreakdown.documents}</span>
@@ -231,7 +225,7 @@ class NxMediaSidebar extends LitElement {
                   <button 
                     data-filter="documentLinks" 
                     @click=${this.handleDocumentFilter}
-                    class="${this._activeFilter === 'documentLinks' ? 'active' : ''}"
+                    class="${this.activeFilter === 'documentLinks' ? 'active' : ''}"
                   >
                     Links
                     <span class="count">${this.documentMediaBreakdown.links}</span>
@@ -243,7 +237,7 @@ class NxMediaSidebar extends LitElement {
                   <button 
                     data-filter="documentMissingAlt" 
                     @click=${this.handleDocumentFilter}
-                    class="${this._activeFilter === 'documentMissingAlt' ? 'active' : ''}"
+                    class="${this.activeFilter === 'documentMissingAlt' ? 'active' : ''}"
                   >
                     No Alt
                     <span class="count">${this.documentMediaBreakdown.missingAlt}</span>

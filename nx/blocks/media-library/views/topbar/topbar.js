@@ -1,6 +1,7 @@
 import { html, LitElement } from 'da-lit';
 import getStyle from '../../../../utils/styles.js';
 import getSvg from '../../../../public/utils/svg.js';
+import { getSearchSuggestions } from '../../utils/filters.js';
 
 const styles = await getStyle(import.meta.url);
 const nx = `${new URL(import.meta.url).origin}/nx`;
@@ -16,23 +17,25 @@ const ICONS = [
 class NxMediaTopBar extends LitElement {
   static properties = {
     searchQuery: { attribute: false },
-    _currentView: { state: true },
     currentView: { attribute: false },
-    _isScanning: { state: true },
-    _scanProgress: { state: true },
-    _duration: { state: true },
-    _hasChanges: { state: true },
     folderFilterPaths: { attribute: false },
+    searchSuggestions: { attribute: false },
+    isScanning: { attribute: false },
+    scanProgress: { attribute: false },
+    // Internal state
+    _currentView: { state: true },
+    _suggestions: { state: true },
+    _activeIndex: { state: true },
+    _originalQuery: { state: true },
   };
 
   constructor() {
     super();
     this._currentView = 'grid';
-    this._isScanning = false;
-    this._scanProgress = { pages: 0, media: 0 };
-    this._duration = null;
-    this._hasChanges = null;
     this._statusTimeout = null;
+    this._suggestions = [];
+    this._activeIndex = -1;
+    this._originalQuery = '';
   }
 
   updated(changedProperties) {
@@ -42,11 +45,20 @@ class NxMediaTopBar extends LitElement {
       this._currentView = this.currentView;
     }
 
-    if (this._duration && !this._isScanning && !this._statusTimeout) {
+    if (changedProperties.has('searchQuery')) {
+      // Clear suggestions when search query is cleared externally
+      if (!this.searchQuery) {
+        this._suggestions = [];
+        this._activeIndex = -1;
+        this._originalQuery = '';
+      }
+    }
+
+    if (this.scanProgress?.duration && !this.isScanning && !this._statusTimeout) {
       this.setScanStatusTimeout();
     }
 
-    if (this._isScanning && this._statusTimeout) {
+    if (this.isScanning && this._statusTimeout) {
       clearTimeout(this._statusTimeout);
       this._statusTimeout = null;
     }
@@ -57,6 +69,96 @@ class NxMediaTopBar extends LitElement {
     this.shadowRoot.adoptedStyleSheets = [sl, slComponents, styles];
 
     getSvg({ parent: this.shadowRoot, paths: ICONS });
+  }
+
+  handleSearchInput(e) {
+    const query = e.target.value;
+    this.searchQuery = query;
+    this._originalQuery = query;
+    this._activeIndex = -1;
+    this._suggestions = getSearchSuggestions(this.searchSuggestions || [], query);
+    this.dispatchEvent(new CustomEvent('search', { detail: { query } }));
+  }
+
+  handleKeyDown(e) {
+    if (!this._suggestions.length) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (this._activeIndex === -1) {
+          this._originalQuery = this.searchQuery;
+        }
+        this._activeIndex = (this._activeIndex + 1) % this._suggestions.length;
+        this.searchQuery = this.getSuggestionText(this._suggestions[this._activeIndex]);
+        break;
+
+      case 'ArrowUp':
+        e.preventDefault();
+        if (this._activeIndex === -1) {
+          this._originalQuery = this.searchQuery;
+        }
+        this._activeIndex = (this._activeIndex - 1 + this._suggestions.length)
+          % this._suggestions.length;
+        this.searchQuery = this.getSuggestionText(this._suggestions[this._activeIndex]);
+        break;
+
+      case 'Enter':
+        e.preventDefault();
+        if (this._activeIndex >= 0) {
+          this.selectSuggestion(this._suggestions[this._activeIndex]);
+        }
+        break;
+
+      case 'Escape':
+        this.searchQuery = this._originalQuery;
+        this._suggestions = [];
+        this._activeIndex = -1;
+        break;
+
+      default:
+        // Handle other keys normally
+        break;
+    }
+  }
+
+  getSuggestionText(suggestion) {
+    if (suggestion.type === 'doc') return `doc:${suggestion.value}`;
+    if (suggestion.type === 'media') {
+      return suggestion.value.name || suggestion.value.url;
+    }
+    return '';
+  }
+
+  selectSuggestion(suggestion) {
+    this._suggestions = [];
+    this._activeIndex = -1;
+
+    if (suggestion.type === 'doc') {
+      this.searchQuery = `doc:${suggestion.value}`;
+      this.dispatchEvent(new CustomEvent('search', {
+        detail: {
+          query: this.searchQuery,
+          type: 'doc',
+          path: suggestion.value,
+        },
+      }));
+    } else {
+      this.searchQuery = suggestion.value.name;
+      this.dispatchEvent(new CustomEvent('search', {
+        detail: {
+          query: this.searchQuery,
+          type: 'media',
+          media: suggestion.value,
+        },
+      }));
+    }
+  }
+
+  highlightMatch(text, query) {
+    if (!query || !text) return text;
+    const regex = new RegExp(`(${query})`, 'ig');
+    return text.replace(regex, '<mark>$1</mark>');
   }
 
   handleSearch(e) {
@@ -90,23 +192,23 @@ class NxMediaTopBar extends LitElement {
   }
 
   renderScanningStatus() {
-    if (this._isScanning) {
+    if (this.isScanning) {
       return html`
         <div class="scanning-indicator">
           <div class="spinner"></div>
           <span class="scanning-text">
-            Scanning... ${this._scanProgress.pages} pages, ${this._scanProgress.media} media files
+            Scanning... ${this.scanProgress?.pages || 0} pages, ${this.scanProgress?.media || 0} media files
           </span>
         </div>
       `;
     }
 
-    if (this._duration) {
-      const durationText = ` (${this._duration})`;
+    if (this.scanProgress?.duration) {
+      const durationText = ` (${this.scanProgress.duration})`;
 
-      if (this._hasChanges === false) {
+      if (this.scanProgress.hasChanges === false) {
         return html`
-          <div class="scanning-indicator completed">
+          <div class="scanning-indicator completed no-changes">
             <span class="scanning-text">
               No changes found${durationText}
             </span>
@@ -117,7 +219,7 @@ class NxMediaTopBar extends LitElement {
       return html`
         <div class="scanning-indicator completed">
           <span class="scanning-text">
-            ${this._scanProgress.pages} pages, ${this._scanProgress.media} media files${durationText}
+            ${this.scanProgress?.pages || 0} pages, ${this.scanProgress?.media || 0} media files${durationText}
           </span>
         </div>
       `;
@@ -130,13 +232,36 @@ class NxMediaTopBar extends LitElement {
     return html`
       <div class="top-bar">
         <div class="search-container">
-          <sl-input
-            type="text"
-            placeholder="Search media..."
-            .value=${this.searchQuery}
-            @input=${this.handleSearch}
-          >
-          </sl-input>
+          <div class="search-wrapper">
+            <sl-input
+              type="text"
+              placeholder="Search media or doc:path..."
+              .value=${this.searchQuery}
+              @input=${this.handleSearchInput}
+              @keydown=${this.handleKeyDown}
+            >
+            </sl-input>
+            ${this._suggestions.length ? html`
+              <div class="suggestions-dropdown">
+                ${this._suggestions.map((suggestion, index) => html`
+                  <div 
+                    class="suggestion-item ${index === this._activeIndex ? 'active' : ''}"
+                    @click=${() => this.selectSuggestion(suggestion)}
+                  >
+                    <div class="suggestion-main">
+                      <span class="suggestion-text" .innerHTML=${this.highlightMatch(suggestion.display, this._originalQuery)}></span>
+                    </div>
+                    ${suggestion.details ? html`
+                      <div class="suggestion-details">
+                        ${suggestion.details.alt ? html`<div class="detail-line">Alt: <span .innerHTML=${this.highlightMatch(suggestion.details.alt, this._originalQuery)}></span></div>` : ''}
+                        ${suggestion.details.doc ? html`<div class="detail-line">Doc: <span .innerHTML=${this.highlightMatch(suggestion.details.doc, this._originalQuery)}></span></div>` : ''}
+                      </div>
+                    ` : ''}
+                  </div>
+                `)}
+              </div>
+            ` : ''}
+          </div>
         </div>
 
         <div class="scanning-status">

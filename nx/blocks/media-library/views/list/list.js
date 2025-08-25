@@ -21,6 +21,7 @@ class NxMediaList extends LitElement {
   static properties = {
     mediaData: { attribute: false },
     isScanning: { attribute: false },
+    searchQuery: { attribute: false }, // NEW: Add searchQuery property
     _visibleStart: { state: true },
     _visibleEnd: { state: true },
     _itemHeight: { state: true },
@@ -189,12 +190,19 @@ class NxMediaList extends LitElement {
     });
   }
 
+  // Add highlighting method
+  highlightMatch(text, query) {
+    if (!query || !text) return text;
+    const regex = new RegExp(`(${query})`, 'ig');
+    return text.replace(regex, '<mark>$1</mark>');
+  }
+
   createItemElement(media, itemIndex) {
     const top = itemIndex * this._itemHeight;
 
     const itemElement = createElement('div', {
       className: 'media-item',
-      dataset: { path: media.mediaUrl, index: itemIndex },
+                  dataset: { path: media.url, index: itemIndex },
       style: `top:${top}px; height:${this._itemHeight}px;`,
       events: { click: this.handleMediaClick.bind(this) },
     });
@@ -206,9 +214,11 @@ class NxMediaList extends LitElement {
       events: { click: (e) => this.handlePreviewClick(e, media) },
     });
 
+    // Apply highlighting to name
+    const highlightedName = this.highlightMatch(this.getMediaName(media), this.searchQuery);
     const nameDiv = createElement('div', {
       className: 'item-name',
-      textContent: this.getMediaName(media),
+      innerHTML: highlightedName, // Use innerHTML instead of textContent
     });
 
     const typeDiv = createElement('div', {
@@ -250,17 +260,17 @@ class NxMediaList extends LitElement {
   }
 
   renderMediaPreviewHTML(media) {
-    const ext = media.mediaUrl.split('.').pop()?.toLowerCase();
+    const ext = media.url.split('.').pop()?.toLowerCase();
 
-    if (this.isImage(media.mediaUrl)) {
-      const imageUrl = media.mediaUrl;
+    if (this.isImage(media.url)) {
+      const imageUrl = media.url;
       return `<img src="${imageUrl}" alt="${media.alt || ''}" loading="lazy">`;
     }
 
     if (ext === 'mp4') {
       return `
         <video 
-          src="${media.mediaUrl}" 
+          src="${media.url}" 
           preload="metadata"
           muted
           @loadedmetadata=${this.handleVideoLoad}
@@ -296,7 +306,7 @@ class NxMediaList extends LitElement {
 
   handleMediaClick(e) {
     const { path } = e.currentTarget.dataset;
-    const media = this.mediaData.find((m) => m.url === path || m.mediaUrl === path);
+    const media = this.mediaData.find((m) => m.url === path);
     this.dispatchEvent(new CustomEvent('mediaClick', { detail: { media } }));
   }
 
@@ -312,7 +322,7 @@ class NxMediaList extends LitElement {
 
   handlePreviewClick(e, media) {
     e.stopPropagation();
-    navigator.clipboard.writeText(media.mediaUrl).then(() => {
+    navigator.clipboard.writeText(media.url).then(() => {
     }).catch((err) => {
       console.error('Failed to copy URL:', err);
     });
@@ -390,7 +400,7 @@ class NxMediaList extends LitElement {
     this._renderedItems.add(idx);
 
     return html`
-                <div class="media-item" data-path="${media.mediaUrl}" data-index="${idx}" @click=${(e) => this.handleMediaClick(e)} style="top:${top}px;">
+                <div class="media-item" data-path="${media.url}" data-index="${idx}" @click=${(e) => this.handleMediaClick(e)} style="top:${top}px;">
                   <div class="item-preview clickable" @click=${(e) => this.handlePreviewClick(e, media)} title="Click to copy media URL">
                     ${this.renderMediaPreview(media)}
                   </div>
@@ -436,18 +446,18 @@ class NxMediaList extends LitElement {
   }
 
   renderMediaPreview(media) {
-    const ext = media.mediaUrl.split('.').pop()?.toLowerCase();
+    const ext = media.url.split('.').pop()?.toLowerCase();
 
-    if (this.isImage(media.mediaUrl)) {
-      const imageUrl = media.mediaUrl;
+    if (this.isImage(media.url)) {
+      const imageUrl = media.url;
       return html`
         <img src="${imageUrl}" alt="${media.alt || ''}" loading="lazy" @error=${(e) => this.handleImageError(e)}>
       `;
     }
 
     // Check if it's a video URL from supported providers
-    if (isVideoUrl(media.mediaUrl)) {
-      const thumbnailUrl = getVideoThumbnail(media.mediaUrl);
+    if (isVideoUrl(media.url)) {
+      const thumbnailUrl = getVideoThumbnail(media.url);
       if (thumbnailUrl) {
         return html`
           <div class="video-preview-container">
@@ -492,7 +502,7 @@ class NxMediaList extends LitElement {
   }
 
   getMediaName(media) {
-    return media.mediaName || media.mediaUrl.split('/').pop() || 'Unknown';
+    return media.mediaName || media.url.split('/').pop() || 'Unknown';
   }
 
   isImage(mediaUrl) {

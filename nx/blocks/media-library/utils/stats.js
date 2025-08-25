@@ -16,7 +16,7 @@ export function getMediaCounts(mediaData) {
   const uniqueMissingAlt = new Set();
 
   mediaData.forEach((media) => {
-    const mediaUrl = media.url || media.mediaUrl || '';
+    const mediaUrl = media.url || '';
     uniqueMedia.add(mediaUrl);
 
     const mediaType = getMediaType(media);
@@ -83,7 +83,7 @@ export function getAvailableSubtypes(mediaData, activeFilter = 'links') {
         const subtype = getSubtype(media);
         if (subtype) {
           const normalizedSubtype = subtype.toUpperCase().trim();
-          const mediaUrl = media.url || media.mediaUrl || '';
+          const mediaUrl = media.url || '';
 
           if (!subtypes.has(normalizedSubtype)) {
             subtypes.set(normalizedSubtype, new Set());

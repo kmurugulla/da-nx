@@ -2,18 +2,7 @@
 
 import { daFetch } from '../../../utils/daFetch.js';
 import { DA_ORIGIN } from '../../../public/utils/constants.js';
-
-export function getMediaLibraryPath(org, repo) {
-  return `/${org}/${repo}/.da/mediaindex`;
-}
-
-export function getMediaJsonPath(org, repo) {
-  return `${getMediaLibraryPath(org, repo)}/media.json`;
-}
-
-export function getScanLockPath(org, repo) {
-  return `${getMediaLibraryPath(org, repo)}/scan-lock.json`;
-}
+import { getMediaJsonPath } from './paths.js';
 
 async function createJsonBlob(data, type = 'sheet') {
   const sheetMeta = {
@@ -40,11 +29,14 @@ export async function saveMediaJson(data, org, repo) {
 
 export async function loadMediaJson(org, repo) {
   const path = getMediaJsonPath(org, repo);
+
   try {
     const resp = await daFetch(`${DA_ORIGIN}/source${path}`);
+
     if (resp.ok) {
       const data = await resp.json();
-      return data.data || data || [];
+      const result = data.data || data || [];
+      return result;
     }
   } catch (error) {
     // eslint-disable-next-line no-console
